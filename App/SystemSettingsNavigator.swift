@@ -7,20 +7,28 @@ enum SystemSettingsDestination {
     case wifi
     case locationServices
 
-    var preferredURL: URL? {
-        let value: String
+    var preferredURLs: [URL] {
+        let values: [String]
         switch self {
         case .appPermissions:
-            value = UIApplication.openSettingsURLString
+            values = [UIApplication.openSettingsURLString]
         case .general:
-            value = "App-Prefs:General"
+            values = ["App-Prefs:General"]
         case .wifi:
-            value = "App-Prefs:WIFI"
+            values = ["App-Prefs:WIFI"]
         case .locationServices:
-            value = "App-Prefs:Privacy&path=LOCATION"
+            values = [
+                "prefs:root=Privacy&path=LOCATION",
+                "App-Prefs:root=Privacy&path=LOCATION",
+                "App-Prefs:Privacy&path=LOCATION"
+            ]
         }
-        return URL(string: value)
+        return values.compactMap(URL.init(string:))
     }
+
+    // Compatibility for existing call sites that only try one private URL.
+    // Location Services therefore uses the requested `prefs:` shortcut first.
+    var preferredURL: URL? { preferredURLs.first }
 
     var manualPath: String {
         switch self {
@@ -43,30 +51,36 @@ enum SystemSettingsNavigator {
         completion: @escaping @MainActor @Sendable (String?) -> Void = { _ in }
     ) {
         let appSettingsURL = URL(string: UIApplication.openSettingsURLString)
-        let preferredURL = destination.preferredURL
-
-        openURL(preferredURL) { openedPreferred in
-            guard !openedPreferred else {
-                completion(nil)
-                return
-            }
-            guard preferredURL != appSettingsURL else {
-                completion(destination.manualPath)
-                return
-            }
-            openURL(appSettingsURL) { openedFallback in
-                completion(openedFallback ? nil : destination.manualPath)
-            }
-        }
+        let candidates = destination.preferredURLs + [appSettingsURL].compactMap { $0 }
+        openFirstAvailable(
+            candidates,
+            manualPath: destination.manualPath,
+            completion: completion
+        )
     }
 
-    private static func openURL(_ url: URL?, completion: @escaping @MainActor @Sendable (Bool) -> Void) {
-        guard let url else {
-            completion(false)
+    private static func openFirstAvailable(
+        _ urls: [URL],
+        manualPath: String,
+        completion: @escaping @MainActor @Sendable (String?) -> Void
+    ) {
+        guard let first = urls.first else {
+            completion(manualPath)
             return
         }
-        UIApplication.shared.open(url, options: [:]) { opened in
-            completion(opened)
+
+        UIApplication.shared.open(first, options: [:]) { opened in
+            Task { @MainActor in
+                if opened {
+                    completion(nil)
+                } else {
+                    openFirstAvailable(
+                        Array(urls.dropFirst()),
+                        manualPath: manualPath,
+                        completion: completion
+                    )
+                }
+            }
         }
     }
 }
