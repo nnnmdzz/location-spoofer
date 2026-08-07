@@ -27,7 +27,8 @@ enum LocationEffectEvaluator {
     static func evaluate(
         target: CLLocationCoordinate2D,
         sample: CLLocation,
-        previousSample: CLLocation?
+        previousSample: CLLocation?,
+        previousTarget: CLLocationCoordinate2D? = nil
     ) -> LocationEffectStatus {
         let targetLocation = CLLocation(latitude: target.latitude, longitude: target.longitude)
         let distance = sample.distance(from: targetLocation)
@@ -38,20 +39,35 @@ enum LocationEffectEvaluator {
             return .effective(distanceMeters: distance, accuracyMeters: accuracy)
         }
 
+        // When switching between two virtual targets, the old WLOC result may
+        // itself report a small horizontalAccuracy. If the new sample still
+        // hugs the previous virtual target, treat it as stale/cache behavior
+        // before considering GNSS dominance.
+        if let previousTarget {
+            let oldTargetLocation = CLLocation(
+                latitude: previousTarget.latitude,
+                longitude: previousTarget.longitude
+            )
+            let oldTargetRadius = max(150, min(500, accuracy * 5))
+            if sample.distance(from: oldTargetLocation) <= oldTargetRadius {
+                return .cachePending(distanceMeters: distance, accuracyMeters: accuracy)
+            }
+        }
+
         let clearlyFar = distance >= max(500, effectiveRadius * 2)
         let highPrecision = accuracy <= 35
-        let nearPrevious: Bool = {
-            guard let previousSample else { return false }
+        let nearPreviousPhysicalSample: Bool = {
+            guard previousTarget == nil, let previousSample else { return false }
             let previousAccuracy = max(0, previousSample.horizontalAccuracy)
             let radius = max(120, max(accuracy, previousAccuracy) * 4)
             return sample.distance(from: previousSample) <= radius
         }()
 
-        // WLOC only changes network location. A fresh, high-precision sample far
-        // from the target strongly suggests that GNSS or another precise source
-        // is still winning the Core Location fusion. This is deliberately a
-        // heuristic: the UI must present it as "likely", never as certainty.
-        if clearlyFar && (highPrecision || (nearPrevious && accuracy <= 80)) {
+        // WLOC only changes network location. On a first activation, a fresh,
+        // high-precision sample far from the target suggests that GNSS or
+        // another precise source may still be winning Core Location fusion.
+        // This remains a heuristic and must never be presented as certainty.
+        if clearlyFar && (highPrecision || (nearPreviousPhysicalSample && accuracy <= 80)) {
             return .gpsLikelyDominant(distanceMeters: distance, accuracyMeters: accuracy)
         }
 
@@ -68,6 +84,7 @@ final class LocationEffectMonitor: ObservableObject {
 
     private let realtime: RealtimeLocationManager
     private var previousSample: CLLocation?
+    private var previousTarget: CLLocationCoordinate2D?
     private var verificationTask: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var foregroundObserver: NSObjectProtocol?
@@ -91,15 +108,21 @@ final class LocationEffectMonitor: ObservableObject {
         }
     }
 
-    func activate(target: CLLocationCoordinate2D, previousSample: CLLocation? = nil) {
-        self.target = target
+    func activate(target newTarget: CLLocationCoordinate2D, previousSample: CLLocation? = nil) {
+        previousTarget = target.flatMap { oldTarget in
+            Self.coordinatesMatch(oldTarget, newTarget) ? nil : oldTarget
+        }
+        target = newTarget
         self.previousSample = previousSample ?? realtime.location
         startVerification(reason: "虚拟定位写入完成")
     }
 
-    func restoreActiveTarget(_ target: CLLocationCoordinate2D) {
-        guard self.target == nil else { return }
-        self.target = target
+    func restoreActiveTarget(_ restoredTarget: CLLocationCoordinate2D) {
+        if let currentTarget = target, Self.coordinatesMatch(currentTarget, restoredTarget) {
+            return
+        }
+        previousTarget = target
+        target = restoredTarget
         previousSample = realtime.location
         startVerification(reason: "恢复已持久化目标")
     }
@@ -114,6 +137,7 @@ final class LocationEffectMonitor: ObservableObject {
         verificationTask?.cancel()
         verificationTask = nil
         target = nil
+        previousTarget = nil
         previousSample = nil
         status = .idle
         RuntimeLogger.info("APP", "定位生效检测", "已清除生效检测状态")
@@ -130,6 +154,7 @@ final class LocationEffectMonitor: ObservableObject {
                 "原因": reason,
                 "目标纬度": String(format: "%.8f", target.latitude),
                 "目标经度": String(format: "%.8f", target.longitude),
+                "有上一虚拟目标": String(self.previousTarget != nil),
                 "请求精度": "100m"
             ])
 
@@ -160,7 +185,8 @@ final class LocationEffectMonitor: ObservableObject {
                 lastStatus = LocationEffectEvaluator.evaluate(
                     target: target,
                     sample: sample,
-                    previousSample: self.previousSample
+                    previousSample: self.previousSample,
+                    previousTarget: self.previousTarget
                 )
                 self.status = lastStatus
 
@@ -184,5 +210,13 @@ final class LocationEffectMonitor: ObservableObject {
             guard !Task.isCancelled, currentGeneration == self.generation else { return }
             self.status = receivedSample ? lastStatus : .unavailable
         }
+    }
+
+    private static func coordinatesMatch(
+        _ lhs: CLLocationCoordinate2D,
+        _ rhs: CLLocationCoordinate2D
+    ) -> Bool {
+        abs(lhs.latitude - rhs.latitude) <= 0.000_001
+            && abs(lhs.longitude - rhs.longitude) <= 0.000_001
     }
 }
