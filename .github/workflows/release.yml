@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -32,14 +33,14 @@ jobs:
         run: ./build.sh
 
       - name: Rename IPA for release
-        run: mv dist/PaopaoLocationSpoofer-unsigned.ipa dist/Location-Spoofer-unsigned.ipa
+        run: mv dist/PaopaoLocationSpoofer-unsigned.ipa dist/Location-Spoofer-v1.0.2-0001-unsigned.ipa
 
       - name: Validate archived release notes
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="v1.0.2-0001"
           NOTES_FILE="docs/releases/${VERSION}.md"
           if [ ! -s "$NOTES_FILE" ]; then
-            echo "::error::缺少版本归档 $NOTES_FILE。请在打 tag 前运行 ./Scripts/generate-release-notes.sh $VERSION 并提交。"
+            echo "::error::缺少版本归档 $NOTES_FILE"
             exit 1
           fi
           if ! grep -Fq "# ${VERSION}" "$NOTES_FILE"; then
@@ -49,10 +50,13 @@ jobs:
           cp "$NOTES_FILE" /tmp/release_notes.md
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          name: "${{ github.ref_name }}"
+          tag_name: v1.0.2-0001
+          target_commitish: ${{ github.sha }}
+          name: v1.0.2-0001
           body_path: /tmp/release_notes.md
-          files: dist/Location-Spoofer-unsigned.ipa
+          files: dist/Location-Spoofer-v1.0.2-0001-unsigned.ipa
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
