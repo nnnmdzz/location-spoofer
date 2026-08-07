@@ -95,7 +95,7 @@ struct ActivationTipContent: View {
     }
 
     private var effectStatusBox: some View {
-        GroupBox(label: Label("自动刷新与生效检测", systemImage: "location.magnifyingglass")) {
+        GroupBox(label: Label("自动刷新与生效检测", systemImage: "location.circle")) {
             VStack(alignment: .leading, spacing: 10) {
                 switch effectMonitor.status {
                 case .idle:
