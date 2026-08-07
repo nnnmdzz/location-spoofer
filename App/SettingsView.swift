@@ -65,6 +65,8 @@ struct SettingsView: View {
                 }
             }
 
+            WlocAccuracySettingsSection()
+
             if runtimeMode.mode == .thirdParty {
                 thirdPartyConfigurationSection
             } else {
