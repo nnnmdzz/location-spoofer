@@ -53,10 +53,12 @@ final class ThirdPartyProxyManager: ObservableObject {
     @Published private(set) var isRequesting = false
     private let requester: any ThirdPartyProxyRequesting
     private let endpoint = URL(string: "https://gs-loc.apple.com/wloc-settings/save")!
+    private let effectMonitor: LocationEffectMonitor?
 
     init(requester: (any ThirdPartyProxyRequesting)? = nil) {
         if let requester {
             self.requester = requester
+            self.effectMonitor = nil
         } else {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -64,19 +66,22 @@ final class ThirdPartyProxyManager: ObservableObject {
             configuration.timeoutIntervalForRequest = 8
             configuration.timeoutIntervalForResource = 10
             self.requester = URLSession(configuration: configuration)
+            self.effectMonitor = .shared
         }
     }
 
     func query() async throws -> ThirdPartyProxySettingsResponse {
         let response = try await perform(action: .query)
         if response.success,
-           response.latitude != nil,
-           response.longitude != nil {
+           let latitude = response.latitude,
+           let longitude = response.longitude {
             activeSettings = response
             connectionState = .connected(active: true)
+            effectMonitor?.restoreActiveTarget(.init(latitude: latitude, longitude: longitude))
         } else if response.error?.contains("无已保存") == true {
             activeSettings = nil
             connectionState = .connected(active: false)
+            effectMonitor?.clear()
         } else {
             let error = ThirdPartyProxyError.rejected(response.error ?? "第三方代理查询失败")
             connectionState = .failed(error.localizedDescription)
@@ -103,6 +108,7 @@ final class ThirdPartyProxyManager: ObservableObject {
         }
         activeSettings = response
         connectionState = .connected(active: true)
+        effectMonitor?.activate(target: .init(latitude: latitude, longitude: longitude))
         RuntimeLogger.info("APP", "ThirdPartyProxy", "第三方代理已保存 WGS-84 坐标", details: [
             "坐标标准": "WGS-84",
             "取值字段": "coordinatePair.wgs84",
@@ -118,6 +124,7 @@ final class ThirdPartyProxyManager: ObservableObject {
         }
         activeSettings = nil
         connectionState = .connected(active: false)
+        effectMonitor?.clear()
         RuntimeLogger.info("APP", "ThirdPartyProxy", "第三方代理坐标已清除")
     }
 
