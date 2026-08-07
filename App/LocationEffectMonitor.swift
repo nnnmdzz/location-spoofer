@@ -1,11 +1,10 @@
 import Combine
 import CoreLocation
 import Foundation
-import UIKit
 
 enum LocationEffectStatus: Equatable {
     case idle
-    case refreshing(attempt: Int)
+    case refreshing(attempt: Int, total: Int)
     case effective(distanceMeters: Double, accuracyMeters: Double)
     case cachePending(distanceMeters: Double, accuracyMeters: Double)
     case gpsLikelyDominant(distanceMeters: Double, accuracyMeters: Double)
@@ -87,25 +86,12 @@ final class LocationEffectMonitor: ObservableObject {
     private var previousTarget: CLLocationCoordinate2D?
     private var verificationTask: Task<Void, Never>?
     private var generation: UInt64 = 0
-    private var foregroundObserver: NSObjectProtocol?
+
+    private let automaticAttemptCount = 3
+    private let automaticAttemptIntervalNanoseconds: UInt64 = 10_000_000_000
 
     init(realtime: RealtimeLocationManager = .shared) {
         self.realtime = realtime
-        foregroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.target != nil else { return }
-                switch self.status {
-                case .idle, .refreshing, .effective:
-                    break
-                case .cachePending, .gpsLikelyDominant, .unavailable:
-                    self.retry(reason: "App回到前台")
-                }
-            }
-        }
     }
 
     func activate(target newTarget: CLLocationCoordinate2D, previousSample: CLLocation? = nil) {
@@ -114,7 +100,7 @@ final class LocationEffectMonitor: ObservableObject {
         }
         target = newTarget
         self.previousSample = previousSample ?? realtime.location
-        startVerification(reason: "虚拟定位写入完成")
+        startAutomaticVerification(reason: "虚拟定位写入完成")
     }
 
     func restoreActiveTarget(_ restoredTarget: CLLocationCoordinate2D) {
@@ -124,12 +110,18 @@ final class LocationEffectMonitor: ObservableObject {
         previousTarget = target
         target = restoredTarget
         previousSample = realtime.location
-        startVerification(reason: "恢复已持久化目标")
+        startAutomaticVerification(reason: "恢复已持久化目标")
     }
 
+    /// User-triggered checks are intentionally one-shot. Automatic activation
+    /// checks already provide the three-sample, 10-second cadence.
     func retry(reason: String = "用户重新检测") {
         guard target != nil else { return }
-        startVerification(reason: reason)
+        startVerification(
+            reason: reason,
+            attemptCount: 1,
+            intervalNanoseconds: 0
+        )
     }
 
     func clear() {
@@ -143,7 +135,19 @@ final class LocationEffectMonitor: ObservableObject {
         RuntimeLogger.info("APP", "定位生效检测", "已清除生效检测状态")
     }
 
-    private func startVerification(reason: String) {
+    private func startAutomaticVerification(reason: String) {
+        startVerification(
+            reason: reason,
+            attemptCount: automaticAttemptCount,
+            intervalNanoseconds: automaticAttemptIntervalNanoseconds
+        )
+    }
+
+    private func startVerification(
+        reason: String,
+        attemptCount: Int,
+        intervalNanoseconds: UInt64
+    ) {
         guard let target else { return }
         generation &+= 1
         let currentGeneration = generation
@@ -155,28 +159,32 @@ final class LocationEffectMonitor: ObservableObject {
                 "目标纬度": String(format: "%.8f", target.latitude),
                 "目标经度": String(format: "%.8f", target.longitude),
                 "有上一虚拟目标": String(self.previousTarget != nil),
-                "请求精度": "100m"
+                "请求精度": "100m",
+                "检测次数": String(attemptCount),
+                "检测间隔秒": intervalNanoseconds == 0 ? "0" : "10"
             ])
 
             var lastStatus: LocationEffectStatus = .unavailable
             var receivedSample = false
 
-            for attempt in 1...3 {
-                guard !Task.isCancelled, currentGeneration == self.generation else { return }
-                self.status = .refreshing(attempt: attempt)
-
-                if attempt == 1 {
-                    try? await Task.sleep(nanoseconds: 350_000_000)
-                } else {
-                    try? await Task.sleep(nanoseconds: 900_000_000)
+            for attempt in 1...attemptCount {
+                if attempt > 1, intervalNanoseconds > 0 {
+                    do {
+                        try await Task.sleep(nanoseconds: intervalNanoseconds)
+                    } catch {
+                        return
+                    }
                 }
+
                 guard !Task.isCancelled, currentGeneration == self.generation else { return }
+                self.status = .refreshing(attempt: attempt, total: attemptCount)
 
                 guard let sample = await self.realtime.requestFreshLocation(
                     desiredAccuracy: kCLLocationAccuracyHundredMeters
                 ) else {
                     RuntimeLogger.warning("APP", "定位生效检测", "本轮软刷新未获取到新样本", details: [
-                        "attempt": String(attempt)
+                        "attempt": String(attempt),
+                        "total": String(attemptCount)
                     ])
                     continue
                 }
@@ -193,17 +201,17 @@ final class LocationEffectMonitor: ObservableObject {
                 let targetLocation = CLLocation(latitude: target.latitude, longitude: target.longitude)
                 RuntimeLogger.info("APP", "定位生效检测", "收到软刷新样本", details: [
                     "attempt": String(attempt),
+                    "total": String(attemptCount),
                     "判定": lastStatus.diagnosticName,
                     "距目标米": String(format: "%.1f", sample.distance(from: targetLocation)),
                     "horizontalAccuracy": String(format: "%.1f", sample.horizontalAccuracy),
                     "样本时间": ISO8601DateFormatter().string(from: sample.timestamp)
                 ])
 
-                switch lastStatus {
-                case .effective, .gpsLikelyDominant:
+                // Success is definitive enough to stop early. All failure or
+                // heuristic states continue through the configured samples.
+                if case .effective = lastStatus {
                     return
-                case .idle, .refreshing, .cachePending, .unavailable:
-                    break
                 }
             }
 
