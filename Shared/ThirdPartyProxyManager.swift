@@ -215,7 +215,6 @@ enum ThirdPartyProxyClient: String, CaseIterable, Identifiable {
         case .quantumultX: return "wloc.conf"
         case .loon: return "wloc.lpx"
         case .stash: return "wloc.stoverride"
-        case .shadowrocket: return "wloc.module"
         }
     }
 
