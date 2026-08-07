@@ -49,6 +49,29 @@ final class LocationEffectMonitorTests: XCTestCase {
         XCTAssertEqual(accuracy, 6, accuracy: 0.001)
     }
 
+    func testPreviousVirtualTargetWinsOverHighPrecisionGPSHeuristic() {
+        let target = CLLocationCoordinate2D(latitude: 40.7580, longitude: -73.9855)
+        let previousTarget = CLLocationCoordinate2D(latitude: 35.681236, longitude: 139.767125)
+        let sample = CLLocation(
+            coordinate: .init(latitude: 35.681250, longitude: 139.767120),
+            altitude: 0,
+            horizontalAccuracy: 20,
+            verticalAccuracy: 10,
+            timestamp: Date()
+        )
+
+        let result = LocationEffectEvaluator.evaluate(
+            target: target,
+            sample: sample,
+            previousSample: sample,
+            previousTarget: previousTarget
+        )
+
+        guard case .cachePending = result else {
+            return XCTFail("expected cachePending for stale old virtual target, got \(result)")
+        }
+    }
+
     func testFarCoarseSampleIsClassifiedAsCachePending() {
         let target = CLLocationCoordinate2D(latitude: 35.681236, longitude: 139.767125)
         let sample = CLLocation(
