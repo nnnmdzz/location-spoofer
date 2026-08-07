@@ -26,6 +26,10 @@ enum SystemSettingsDestination {
         return values.compactMap(URL.init(string:))
     }
 
+    // Compatibility for existing call sites that only try one private URL.
+    // Location Services therefore uses the requested `prefs:` shortcut first.
+    var preferredURL: URL? { preferredURLs.first }
+
     var manualPath: String {
         switch self {
         case .appPermissions:
