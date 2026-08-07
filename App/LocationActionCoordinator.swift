@@ -39,7 +39,9 @@ final class LocationActionCoordinator: ObservableObject {
         self.effectMonitor = .shared
         let existing = settings.load()
         self.virtualLocationEnabled = existing?.enabled == true
-        if let existing, existing.enabled {
+        if ProxyRuntimeModeStore.shared.mode == .localWiFi,
+           let existing,
+           existing.enabled {
             effectMonitor?.restoreActiveTarget(.init(
                 latitude: existing.latitude,
                 longitude: existing.longitude
