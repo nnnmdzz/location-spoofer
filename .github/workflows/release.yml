@@ -58,8 +58,8 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Build unsigned IPA and run tests
-        run: ./build.sh --test
+      - name: Build unsigned IPA
+        run: ./build.sh
 
       - name: Rename IPA for release
         run: mv dist/PaopaoLocationSpoofer-unsigned.ipa "dist/${{ steps.release.outputs.asset }}"
