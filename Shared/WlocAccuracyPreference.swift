@@ -28,28 +28,45 @@ enum WlocAccuracyPreset: Int, CaseIterable, Identifiable {
 @MainActor
 final class WlocAccuracyPreference: ObservableObject {
     static let shared = WlocAccuracyPreference()
+    static let allowedRange = 1...1000
 
     private enum Key {
         static let selectedAccuracy = "wloc_accuracy_preference_meters"
     }
 
-    @Published private(set) var preset: WlocAccuracyPreset
+    @Published private(set) var meters: Int
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = AppGroup.defaults) {
         self.defaults = defaults
         let stored = defaults.integer(forKey: Key.selectedAccuracy)
-        self.preset = WlocAccuracyPreset(rawValue: stored) ?? .standard
+        self.meters = Self.allowedRange.contains(stored) ? stored : WlocAccuracyPreset.standard.rawValue
     }
 
-    var meters: Int { preset.rawValue }
+    var matchingPreset: WlocAccuracyPreset? {
+        WlocAccuracyPreset(rawValue: meters)
+    }
 
-    func select(_ newPreset: WlocAccuracyPreset) {
-        guard preset != newPreset else { return }
-        preset = newPreset
-        defaults.set(newPreset.rawValue, forKey: Key.selectedAccuracy)
+    var isCustom: Bool { matchingPreset == nil }
+
+    func select(_ preset: WlocAccuracyPreset) {
+        setMeters(preset.rawValue, source: "预设")
+    }
+
+    @discardableResult
+    func setCustomMeters(_ value: Int) -> Bool {
+        guard Self.allowedRange.contains(value) else { return false }
+        setMeters(value, source: "自定义")
+        return true
+    }
+
+    private func setMeters(_ value: Int, source: String) {
+        guard meters != value else { return }
+        meters = value
+        defaults.set(value, forKey: Key.selectedAccuracy)
         RuntimeLogger.info("APP", "WLOC精度", "已更新 WLOC 精度配置", details: [
-            "accuracy": String(newPreset.rawValue)
+            "accuracy": String(value),
+            "来源": source
         ])
     }
 }
