@@ -27,6 +27,8 @@ struct RuntimeLogsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            LocationEffectStatusPanel()
+            Divider()
             testPanel
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)

@@ -20,15 +20,25 @@ enum SystemSettingsDestination {
             values = [
                 "prefs:root=Privacy&path=LOCATION",
                 "App-Prefs:root=Privacy&path=LOCATION",
-                "App-Prefs:Privacy&path=LOCATION"
+                "App-Prefs:Privacy&path=LOCATION",
+                "prefs:root=Privacy",
+                "App-Prefs:root=Privacy",
+                "App-Prefs:Privacy"
             ]
         }
         return values.compactMap(URL.init(string:))
     }
 
-    // Compatibility for existing call sites that only try one private URL.
-    // Location Services therefore uses the requested `prefs:` shortcut first.
     var preferredURL: URL? { preferredURLs.first }
+
+    var shouldFallbackToAppSettings: Bool {
+        switch self {
+        case .locationServices:
+            return false
+        case .appPermissions, .general, .wifi:
+            return true
+        }
+    }
 
     var manualPath: String {
         switch self {
@@ -50,8 +60,13 @@ enum SystemSettingsNavigator {
         _ destination: SystemSettingsDestination,
         completion: @escaping @MainActor @Sendable (String?) -> Void = { _ in }
     ) {
-        let appSettingsURL = URL(string: UIApplication.openSettingsURLString)
-        let candidates = destination.preferredURLs + [appSettingsURL].compactMap { $0 }
+        var candidates = destination.preferredURLs
+        if destination.shouldFallbackToAppSettings,
+           let appSettingsURL = URL(string: UIApplication.openSettingsURLString),
+           !candidates.contains(appSettingsURL) {
+            candidates.append(appSettingsURL)
+        }
+
         openFirstAvailable(
             candidates,
             manualPath: destination.manualPath,
