@@ -92,10 +92,11 @@ final class ThirdPartyProxyManager: ObservableObject {
 
     func save(_ favorite: FavoriteLocation) async throws -> ThirdPartyProxySettingsResponse {
         let wgs84 = favorite.coordinatePair.wgs84
+        let accuracy = WlocAccuracyPreference.shared.meters
         let response = try await perform(action: .save(
             latitude: wgs84.latitude,
             longitude: wgs84.longitude,
-            accuracy: favorite.accuracy
+            accuracy: accuracy
         ))
         guard response.success else {
             throw ThirdPartyProxyError.rejected(response.error ?? "第三方代理拒绝保存坐标")
@@ -112,7 +113,8 @@ final class ThirdPartyProxyManager: ObservableObject {
         RuntimeLogger.info("APP", "ThirdPartyProxy", "第三方代理已保存 WGS-84 坐标", details: [
             "坐标标准": "WGS-84",
             "取值字段": "coordinatePair.wgs84",
-            "accuracy": String(favorite.accuracy)
+            "accuracy": String(accuracy),
+            "accuracy来源": "全局WLOC精度配置"
         ])
         return response
     }
