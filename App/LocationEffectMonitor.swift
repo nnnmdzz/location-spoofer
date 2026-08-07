@@ -166,13 +166,23 @@ final class LocationEffectMonitor: ObservableObject {
 
             var lastStatus: LocationEffectStatus = .unavailable
             var receivedSample = false
+            let seriesStartedAt = Date()
+            let intervalSeconds = Double(intervalNanoseconds) / 1_000_000_000
 
             for attempt in 1...attemptCount {
                 if attempt > 1, intervalNanoseconds > 0 {
-                    do {
-                        try await Task.sleep(nanoseconds: intervalNanoseconds)
-                    } catch {
-                        return
+                    let scheduledAt = seriesStartedAt.addingTimeInterval(
+                        intervalSeconds * Double(attempt - 1)
+                    )
+                    let remaining = scheduledAt.timeIntervalSinceNow
+                    if remaining > 0 {
+                        do {
+                            try await Task.sleep(
+                                nanoseconds: UInt64(remaining * 1_000_000_000)
+                            )
+                        } catch {
+                            return
+                        }
                     }
                 }
 
