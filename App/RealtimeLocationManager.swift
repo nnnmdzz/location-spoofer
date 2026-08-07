@@ -62,6 +62,7 @@ final class RealtimeLocationManager: NSObject, ObservableObject, CLLocationManag
         let continuation: CheckedContinuation<CLLocation?, Never>
         var phase: RequestPhase
         let originalDesiredAccuracy: CLLocationAccuracy
+        let freshnessTolerance: TimeInterval
     }
 
     private let driver: any RealtimeLocationDriving
@@ -168,7 +169,8 @@ final class RealtimeLocationManager: NSObject, ObservableObject, CLLocationManag
             "requestID": String(requestID),
             "授权状态": authorizationName(authorizationStatus),
             "初始阶段": "awaitingAuthorization",
-            "临时精度": desiredAccuracy.map { String(format: "%.1f", $0) } ?? "未修改"
+            "临时精度": desiredAccuracy.map { String(format: "%.1f", $0) } ?? "未修改",
+            "样本时间容差秒": allowCache ? "1.00" : "0.15"
         ])
 
         return await withTaskCancellationHandler {
@@ -178,7 +180,8 @@ final class RealtimeLocationManager: NSObject, ObservableObject, CLLocationManag
                     startedAt: nil,
                     continuation: continuation,
                     phase: .awaitingAuthorization,
-                    originalDesiredAccuracy: originalDesiredAccuracy
+                    originalDesiredAccuracy: originalDesiredAccuracy,
+                    freshnessTolerance: allowCache ? 1 : 0.15
                 )
 
                 if authorizationStatus == .notDetermined {
@@ -230,8 +233,10 @@ final class RealtimeLocationManager: NSObject, ObservableObject, CLLocationManag
             ])
             for (index, candidate) in locations.enumerated() {
                 let valid = Self.isValid(candidate)
-                let freshEnough = activeRequest?.startedAt.map {
-                    candidate.timestamp >= $0.addingTimeInterval(-1)
+                let freshEnough = activeRequest.flatMap { request in
+                    request.startedAt.map {
+                        candidate.timestamp >= $0.addingTimeInterval(-request.freshnessTolerance)
+                    }
                 } ?? false
                 RealtimeLocationTrace.log(
                     valid ? "检查 CLLocationManager 样本" : "拒绝 CLLocationManager 样本：坐标或精度无效",
@@ -253,7 +258,7 @@ final class RealtimeLocationManager: NSObject, ObservableObject, CLLocationManag
                   let startedAt = request.startedAt,
                   request.phase != .awaitingAuthorization,
                   let latest = validLocations.last(where: {
-                      $0.timestamp >= startedAt.addingTimeInterval(-1)
+                      $0.timestamp >= startedAt.addingTimeInterval(-request.freshnessTolerance)
                   }) else {
                 if let request = activeRequest, request.phase != .awaitingAuthorization {
                     RuntimeLogger.warning("APP", "实时定位", "本批次没有可完成当前请求的样本", details: [
