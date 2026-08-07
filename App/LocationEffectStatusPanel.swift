@@ -15,12 +15,12 @@ struct LocationEffectStatusPanel: View {
 
             switch effectMonitor.status {
             case .idle:
-                Text("等待虚拟定位目标。坐标写入后会自动执行一轮软刷新与生效检测。")
+                Text("等待虚拟定位目标。坐标写入后会自动检测最多 3 次，后两次各间隔 10 秒。")
                     .font(.caption).foregroundStyle(.secondary)
-            case .refreshing(let attempt):
+            case .refreshing(let attempt, let total):
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("正在软刷新并检测（\(attempt)/3）")
+                    Text(total == 1 ? "正在手动检测" : "正在自动检测（\(attempt)/\(total)）")
                         .font(.caption.weight(.semibold))
                 }
                 Text("仅调整本 App 本轮 Core Location 请求精度，不会关闭系统定位服务或禁用 GPS。")
@@ -43,7 +43,7 @@ struct LocationEffectStatusPanel: View {
                 retryButton
             }
 
-            Text("检测为事件触发：写入目标、失败状态下回到前台、或手动重新检测时执行；不是后台常驻轮询。")
+            Text("自动检测仅在写入或恢复目标时执行：首次立即检测，之后每隔 10 秒，最多 3 次；不会因 App 回到前台重复启动。手动“重新检测”只执行 1 次。")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
