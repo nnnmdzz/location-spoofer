@@ -31,16 +31,26 @@ final class LocationActionCoordinator: ObservableObject {
 
     private let proxy: any LocationActionProxying
     private let settings: any LocationActionSettingsStoring
+    private let effectMonitor: LocationEffectMonitor?
 
     init() {
         self.proxy = ProxyManager.shared
         self.settings = DeviceWlocSettingsStorage()
-        self.virtualLocationEnabled = settings.load()?.enabled == true
+        self.effectMonitor = .shared
+        let existing = settings.load()
+        self.virtualLocationEnabled = existing?.enabled == true
+        if let existing, existing.enabled {
+            effectMonitor?.restoreActiveTarget(.init(
+                latitude: existing.latitude,
+                longitude: existing.longitude
+            ))
+        }
     }
 
     init(proxy: any LocationActionProxying, settings: any LocationActionSettingsStoring) {
         self.proxy = proxy
         self.settings = settings
+        self.effectMonitor = nil
         self.virtualLocationEnabled = settings.load()?.enabled == true
     }
 
@@ -75,6 +85,7 @@ final class LocationActionCoordinator: ObservableObject {
         guard !state.isBusy else { return }
         _ = proxy.setCoords(lat: 0, lon: 0, enabled: false, accuracy: 25)
         settings.clear()
+        effectMonitor?.clear()
         state = .idle
         virtualLocationEnabled = false
         message = "已恢复真实定位"
@@ -103,6 +114,7 @@ final class LocationActionCoordinator: ObservableObject {
             enabled: true,
             accuracy: favorite.accuracy
         )
+        effectMonitor?.activate(target: .init(latitude: wgs.latitude, longitude: wgs.longitude))
         RuntimeLogger.info("APP", "坐标转换", "设置虚拟定位坐标", details: [
             "WLOC写入标准": CoordinateConverter.MapCoordinateSystem.wgs84.diagnosticName,
             "当前地图标准": CoordinateConverter.currentMapCoordinateSystem.diagnosticName,
