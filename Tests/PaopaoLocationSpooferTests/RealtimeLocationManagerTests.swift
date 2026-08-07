@@ -23,6 +23,38 @@ final class RealtimeLocationManagerTests: XCTestCase {
         XCTAssertFalse(manager.isRequesting)
     }
 
+    func testFreshRequestBypassesCacheUsesTemporaryAccuracyAndRestoresIt() async {
+        let driver = FakeRealtimeLocationDriver()
+        driver.location = CLLocation(
+            coordinate: .init(latitude: 30.42, longitude: 114.25),
+            altitude: 0,
+            horizontalAccuracy: 12,
+            verticalAccuracy: 10,
+            timestamp: Date()
+        )
+        driver.desiredAccuracy = 8
+        let manager = RealtimeLocationManager(driver: driver, timeoutNanoseconds: 1_000_000_000)
+        var requestedAccuracy: CLLocationAccuracy?
+        driver.onRequestLocation = {
+            requestedAccuracy = driver.desiredAccuracy
+            driver.emit(CLLocation(
+                coordinate: .init(latitude: 35.681236, longitude: 139.767125),
+                altitude: 0,
+                horizontalAccuracy: 85,
+                verticalAccuracy: 10,
+                timestamp: Date()
+            ))
+        }
+
+        let sample = await manager.requestFreshLocation(desiredAccuracy: kCLLocationAccuracyHundredMeters)
+
+        XCTAssertEqual(sample?.coordinate.latitude ?? 0, 35.681236, accuracy: 0.000001)
+        XCTAssertEqual(driver.requestLocationCallCount, 1)
+        XCTAssertEqual(requestedAccuracy ?? -1, kCLLocationAccuracyHundredMeters, accuracy: 0.001)
+        XCTAssertEqual(driver.desiredAccuracy, 8, accuracy: 0.001)
+        XCTAssertFalse(manager.isRequesting)
+    }
+
     func testContinuationIsInstalledBeforeOneShotRequest() async {
         let driver = FakeRealtimeLocationDriver()
         let manager = RealtimeLocationManager(driver: driver, timeoutNanoseconds: 1_000_000_000)
@@ -146,6 +178,7 @@ final class RealtimeLocationManagerTests: XCTestCase {
 private final class FakeRealtimeLocationDriver: RealtimeLocationDriving {
     var location: CLLocation?
     var authorizationStatus: CLAuthorizationStatus = .authorizedWhenInUse
+    var desiredAccuracy: CLLocationAccuracy = kCLLocationAccuracyBest
     weak var delegate: CLLocationManagerDelegate?
     var onRequestLocation: (() -> Void)?
     private(set) var requestAuthorizationCallCount = 0
