@@ -40,7 +40,6 @@ struct TipSheetView: View {
 @MainActor
 private func openSettings(_ destination: SystemSettingsDestination) {
     guard let appSettingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
-    // Try the preferred (private) URL scheme first; fall back to reliable app-settings:
     if let preferredURL = destination.preferredURL, preferredURL != appSettingsURL {
         UIApplication.shared.open(preferredURL) { opened in
             if !opened {
@@ -68,11 +67,8 @@ private struct TipCloseButton: View {
 struct ActivationTipContent: View {
     var runtimeMode: ProxyRuntimeMode = .localWiFi
     let dismiss: () -> Void
-    @ObservedObject private var effectMonitor = LocationEffectMonitor.shared
 
     var body: some View {
-        effectStatusBox
-
         GroupBox(label: Label("自动刷新仍未生效时", systemImage: "checklist")) {
             VStack(alignment: .leading, spacing: 10) {
                 if runtimeMode == .thirdParty {
@@ -91,76 +87,6 @@ struct ActivationTipContent: View {
             Text("操作到第 3 步时关机重启，开机后从第 4 步继续。这样能彻底清除系统缓存的定位数据。")
                 .font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
         }
-
-    }
-
-    private var effectStatusBox: some View {
-        GroupBox(label: Label("自动刷新与生效检测", systemImage: "location.circle")) {
-            VStack(alignment: .leading, spacing: 10) {
-                switch effectMonitor.status {
-                case .idle:
-                    Label("等待定位目标", systemImage: "clock")
-                        .font(.caption.weight(.semibold))
-                    Text("坐标写入成功后，App 会自动绕过近期定位缓存，请求新的百米级 Core Location 样本并验证是否接近目标。")
-                        .font(.caption2).foregroundStyle(.secondary)
-                case .refreshing(let attempt):
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("正在软刷新定位（\(attempt)/3）")
-                            .font(.caption.weight(.semibold))
-                    }
-                    Text("这里只调整本 App 的定位请求精度，不会关闭系统定位服务，也不会禁用 GPS。")
-                        .font(.caption2).foregroundStyle(.secondary)
-                case .effective(let distance, let accuracy):
-                    Label("定位已生效", systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.green)
-                    measurementText(distance: distance, accuracy: accuracy)
-                case .cachePending(let distance, let accuracy):
-                    Label("系统仍可能使用旧定位缓存", systemImage: "clock.arrow.circlepath")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.orange)
-                    measurementText(distance: distance, accuracy: accuracy)
-                    Text("WLOC 目标已经写入，但新样本仍明显偏离目标。可先重新检测；仍无变化时再手动关闭/开启系统定位服务。")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    diagnosticActions
-                case .gpsLikelyDominant(let distance, let accuracy):
-                    Label("疑似高精度真实定位占优", systemImage: "location.north.circle.fill")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.orange)
-                    measurementText(distance: distance, accuracy: accuracy)
-                    Text("检测到远离目标的高精度样本，室外强 GPS/GNSS 或旧高精度定位可能仍在 Core Location 融合中占优。WLOC 只能修改 Wi‑Fi/基站网络定位；此判断为启发式。")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    diagnosticActions
-                case .unavailable:
-                    Label("暂时没有拿到新的定位样本", systemImage: "questionmark.circle")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.orange)
-                    Text("可能是定位授权、系统缓存或已有定位请求占用。可以重新检测，必要时进入定位服务设置刷新。")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    diagnosticActions
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-        }
-    }
-
-    private var diagnosticActions: some View {
-        HStack(spacing: 8) {
-            Button { effectMonitor.retry() } label: {
-                Label("重新检测", systemImage: "arrow.clockwise").font(.caption)
-            }
-            .buttonStyle(.bordered)
-
-            Button { openSettings(.locationServices) } label: {
-                Label("刷新定位服务", systemImage: "arrow.up.right.square").font(.caption)
-            }
-            .buttonStyle(.bordered)
-            .tint(.blue)
-        }
-    }
-
-    private func measurementText(distance: Double, accuracy: Double) -> some View {
-        Text(String(format: "距目标约 %.0f m · 样本精度约 %.0f m", distance, accuracy))
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(.secondary)
     }
 
     private func step(_ n: Int, _ title: String, _ detail: String) -> some View {
@@ -216,7 +142,6 @@ struct DeactivationTipContent: View {
         GroupBox(label: Label("如果还是不行", systemImage: "exclamationmark.triangle")) {
             Text("操作到第 3 步时关机重启，开机后从第 4 步继续。").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
         }
-
     }
 
     private func step(_ n: Int, _ title: String, _ detail: String) -> some View {
