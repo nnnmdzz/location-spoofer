@@ -39,16 +39,7 @@ struct TipSheetView: View {
 
 @MainActor
 private func openSettings(_ destination: SystemSettingsDestination) {
-    guard let appSettingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
-    if let preferredURL = destination.preferredURL, preferredURL != appSettingsURL {
-        UIApplication.shared.open(preferredURL) { opened in
-            if !opened {
-                UIApplication.shared.open(appSettingsURL)
-            }
-        }
-    } else {
-        UIApplication.shared.open(appSettingsURL)
-    }
+    SystemSettingsNavigator.open(destination)
 }
 
 // MARK: - 共享组件
@@ -79,7 +70,7 @@ struct ActivationTipContent: View {
                 systemStep(3, "关闭系统定位服务", "打开系统「设置 → 隐私与安全性 → 定位服务」，关闭顶部的总开关。等待 2 秒。")
                 step(4, "打开 Wi‑Fi，启动虚拟定位", runtimeMode == .thirdParty ? "从控制中心打开 Wi‑Fi（飞行模式保持开启），确认第三方代理已连接。坐标已经同步到第三方代理。等待 2 秒。" : "从控制中心打开 Wi‑Fi（飞行模式保持开启），进入 App 点底部「开始虚拟定位」。等待 2 秒。")
                 step(5, "关闭飞行模式", "从控制中心关闭飞行模式。等待 2 秒。")
-                systemStep(6, "重新开启定位服务", "再次进入「设置 → 隐私与安全性 → 定位服务」，打开总开关。返回 App 后会自动重新检测。")
+                systemStep(6, "重新开启定位服务", "再次进入「设置 → 隐私与安全性 → 定位服务」，打开总开关。返回 App 后可手动重新检测。")
             }.padding(.vertical, 4)
         }
 
