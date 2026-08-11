@@ -31,16 +31,28 @@ final class LocationActionCoordinator: ObservableObject {
 
     private let proxy: any LocationActionProxying
     private let settings: any LocationActionSettingsStoring
+    private let effectMonitor: LocationEffectMonitor?
 
     init() {
         self.proxy = ProxyManager.shared
         self.settings = DeviceWlocSettingsStorage()
-        self.virtualLocationEnabled = settings.load()?.enabled == true
+        self.effectMonitor = .shared
+        let existing = settings.load()
+        self.virtualLocationEnabled = existing?.enabled == true
+        if ProxyRuntimeModeStore.shared.mode == .localWiFi,
+           let existing,
+           existing.enabled {
+            effectMonitor?.restoreActiveTarget(.init(
+                latitude: existing.latitude,
+                longitude: existing.longitude
+            ))
+        }
     }
 
     init(proxy: any LocationActionProxying, settings: any LocationActionSettingsStoring) {
         self.proxy = proxy
         self.settings = settings
+        self.effectMonitor = nil
         self.virtualLocationEnabled = settings.load()?.enabled == true
     }
 
@@ -59,9 +71,6 @@ final class LocationActionCoordinator: ObservableObject {
         }
     }
 
-    /// Commits a target after SetupCoordinator has completed verification.
-    /// This method is synchronous on MainActor so selection revision validation
-    /// and the final settings/proxy write cannot be interleaved by a newer map event.
     func applyVerified(_ favorite: FavoriteLocation) -> Bool {
         guard proxy.isRunning else {
             failApply(ProxyError.startFailed)
@@ -73,8 +82,14 @@ final class LocationActionCoordinator: ObservableObject {
 
     func clear() {
         guard !state.isBusy else { return }
-        _ = proxy.setCoords(lat: 0, lon: 0, enabled: false, accuracy: 25)
+        _ = proxy.setCoords(
+            lat: 0,
+            lon: 0,
+            enabled: false,
+            accuracy: WlocAccuracyPreference.shared.meters
+        )
         settings.clear()
+        effectMonitor?.clear()
         state = .idle
         virtualLocationEnabled = false
         message = "已恢复真实定位"
@@ -88,12 +103,12 @@ final class LocationActionCoordinator: ObservableObject {
     }
 
     private func commit(_ favorite: FavoriteLocation) -> Bool {
-        // WLOC 合约固定使用持久化的 WGS-84 值，不依赖当前地图地图坐标标准。
         let wgs = favorite.coordinatePair.wgs84
+        let accuracy = WlocAccuracyPreference.shared.meters
         let value = WlocSettings(
             longitude: wgs.longitude,
             latitude: wgs.latitude,
-            accuracy: favorite.accuracy,
+            accuracy: accuracy,
             enabled: true
         )
         settings.save(value)
@@ -101,14 +116,16 @@ final class LocationActionCoordinator: ObservableObject {
             lat: wgs.latitude,
             lon: wgs.longitude,
             enabled: true,
-            accuracy: favorite.accuracy
+            accuracy: accuracy
         )
+        effectMonitor?.activate(target: .init(latitude: wgs.latitude, longitude: wgs.longitude))
         RuntimeLogger.info("APP", "坐标转换", "设置虚拟定位坐标", details: [
             "WLOC写入标准": CoordinateConverter.MapCoordinateSystem.wgs84.diagnosticName,
             "当前地图标准": CoordinateConverter.currentMapCoordinateSystem.diagnosticName,
             "目标所在区域": CoordinateConverter.usesGCJ02ServiceArea(lat: wgs.latitude, lon: wgs.longitude) ? "国内转换区域" : "国外非转换区域",
             "取值字段": "coordinatePair.wgs84",
-            "accuracy": String(favorite.accuracy)
+            "accuracy": String(accuracy),
+            "accuracy来源": "全局WLOC精度配置"
         ])
         state = .idle
         virtualLocationEnabled = true
