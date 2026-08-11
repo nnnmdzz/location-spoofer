@@ -8,7 +8,7 @@ private enum UpdateCheckResult: Identifiable {
     var id: String {
         switch self {
         case .current(let currentVersion, let latestVersion):
-            return "current-\(currentVersion)-\(latestVersion)"
+            return "\(currentVersion)-\(latestVersion)"
         case .available(let prompt):
             return "available-\(prompt.id)"
         case .failed:
@@ -37,6 +37,7 @@ struct SettingsView: View {
     @State private var githubDestination: SafariDestination?
     @State private var isCheckingForUpdates = false
     @State private var updateCheckResult: UpdateCheckResult?
+    @State private var showingForkUpdateCheck = false
 
     var body: some View {
         Form {
@@ -48,7 +49,6 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.inline)
                 .disabled(modeOperationRunning || actions.state.isBusy || thirdPartyProxy.isRequesting)
-
             }
 
             Section("状态") {
@@ -66,9 +66,7 @@ struct SettingsView: View {
                         Spacer()
                         Text(thirdPartyStatusText).foregroundStyle(.secondary)
                     }
-                    Button {
-                        detectThirdPartyConnection()
-                    } label: {
+                    Button { detectThirdPartyConnection() } label: {
                         if thirdPartyProxy.isRequesting {
                             HStack { ProgressView(); Text("正在检测…") }
                         } else {
@@ -86,11 +84,7 @@ struct SettingsView: View {
 
             Section("定位模拟") {
                 Toggle("运动状态模拟", isOn: motionSimulationBinding)
-                    .disabled(
-                        modeOperationRunning ||
-                        actions.state.isBusy ||
-                        thirdPartyProxy.isRequesting
-                    )
+                    .disabled(modeOperationRunning || actions.state.isBusy || thirdPartyProxy.isRequesting)
                 Text("实验性功能，默认关闭。开启后会同时模拟定位响应中的运动状态。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -100,60 +94,39 @@ struct SettingsView: View {
                 thirdPartyConfigurationSection
             } else {
                 Section("说明") {
-                    Button {
-                        activeTip = .activation
-                    } label: {
+                    Button { activeTip = .activation } label: {
                         Label("生效说明", systemImage: "checklist")
                     }
-                    Button {
-                        activeTip = .deactivation
-                    } label: {
+                    Button { activeTip = .deactivation } label: {
                         Label("失效说明", systemImage: "arrow.uturn.backward.circle")
                     }
-                    Button {
-                        activeTip = .removeProxy
-                    } label: {
+                    Button { activeTip = .removeProxy } label: {
                         Label("关闭 WiFi 代理", systemImage: "wifi.slash")
                     }
                 }
-
             }
 
             Section("工作原理") {
                 Text(workflowDescription)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("应用") {
                 if runtimeMode.mode == .localWiFi {
-                    Button {
-                        setup.requestSetup()
-                    } label: {
+                    Button { setup.requestSetup() } label: {
                         Label("进入引导页", systemImage: "arrow.clockwise.circle")
                     }
                 }
-                Button {
-                    checkForUpdates()
-                } label: {
-                    if isCheckingForUpdates {
-                        HStack {
-                            ProgressView()
-                            Text("正在检查…")
-                        }
-                    } else {
-                        Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
-                    }
+                Button { showingForkUpdateCheck = true } label: {
+                    Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
                 }
-                .disabled(isCheckingForUpdates)
                 valueRow("版本", value: versionText)
             }
 
             if runtimeMode.mode == .localWiFi {
                 Section("证书") {
-                    Button(role: .destructive) {
-                        showCertificateResetConfirmation = true
-                    } label: {
+                    Button(role: .destructive) { showCertificateResetConfirmation = true } label: {
                         Label("重置证书", systemImage: "arrow.clockwise.circle")
                     }
                     .disabled(modeOperationRunning || actions.state.isBusy)
@@ -171,15 +144,11 @@ struct SettingsView: View {
                     Label("报告 Bug", systemImage: "ladybug")
                 }
 
-                Button {
-                    githubDestination = SafariDestination(url: GitHubSubmission.usageHelpURL)
-                } label: {
+                Button { githubDestination = SafariDestination(url: GitHubSubmission.usageHelpURL) } label: {
                     Label("使用帮助", systemImage: "questionmark.circle")
                 }
 
-                Button {
-                    githubDestination = SafariDestination(url: GitHubSubmission.featureRequestURL)
-                } label: {
+                Button { githubDestination = SafariDestination(url: GitHubSubmission.featureRequestURL) } label: {
                     Label("功能建议", systemImage: "lightbulb")
                 }
 
@@ -189,9 +158,7 @@ struct SettingsView: View {
                             for: thirdPartyClient.selectedClient,
                             systemVersion: UIDevice.current.systemVersion
                         )
-                        githubDestination = SafariDestination(
-                            url: GitHubSubmission.communityContributionURL
-                        )
+                        githubDestination = SafariDestination(url: GitHubSubmission.communityContributionURL)
                     } label: {
                         Label("分享第三方配置", systemImage: "square.and.arrow.up")
                     }
@@ -231,8 +198,10 @@ struct SettingsView: View {
             TipSheetView(kind: kind)
         }
         .sheet(item: $githubDestination) { destination in
-            SafariView(url: destination.url)
-                .ignoresSafeArea()
+            SafariView(url: destination.url).ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingForkUpdateCheck) {
+            NavigationView { ForkUpdateCheckView() }
         }
         .alert(proxyOperationAlertTitle, isPresented: Binding(
             get: { !proxyOperationError.isEmpty },
@@ -250,9 +219,7 @@ struct SettingsView: View {
             isPresented: $showCertificateResetConfirmation,
             titleVisibility: .visible
         ) {
-            Button("重置并生成新证书", role: .destructive) {
-                resetCertificateAuthority()
-            }
+            Button("重置并生成新证书", role: .destructive) { resetCertificateAuthority() }
             Button("取消", role: .cancel) {}
         } message: {
             Text("当前虚拟定位和本地代理将停止。App 会删除钥匙串中的设备 CA、立即生成新证书，并打开安装与信任引导。你还需要前往 iOS「设置 → 通用 → VPN 与设备管理」手动删除旧证书，然后重新下载安装并完全信任新证书。")
@@ -274,6 +241,8 @@ struct SettingsView: View {
     }
 
     private var versionText: String {
+        let fork = Bundle.main.object(forInfoDictionaryKey: "ForkReleaseVersion") as? String
+        if let fork, !fork.isEmpty { return fork }
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         return "\(v) (\(b))"
@@ -289,23 +258,14 @@ struct SettingsView: View {
                 return
             }
             AppRemoteConfigurationStore.shared.apply(configuration)
-            let currentVersion = Bundle.main.object(
-                forInfoDictionaryKey: "CFBundleShortVersionString"
-            ) as? String ?? AppRemoteConfiguration.fallback.latestVersion
+            let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+                ?? AppRemoteConfiguration.fallback.latestVersion
             guard let pendingPrompt = configuration.updatePrompt(currentVersion: currentVersion) else {
-                updateCheckResult = .current(
-                    currentVersion: currentVersion,
-                    latestVersion: configuration.latestVersion
-                )
+                updateCheckResult = .current(currentVersion: currentVersion, latestVersion: configuration.latestVersion)
                 return
             }
-            let releaseNotes = await AppRemoteConfigurationService.fetchReleaseNotes(
-                version: pendingPrompt.latestVersion
-            )
-            let prompt = configuration.updatePrompt(
-                currentVersion: currentVersion,
-                releaseNotes: releaseNotes
-            ) ?? pendingPrompt
+            let releaseNotes = await AppRemoteConfigurationService.fetchReleaseNotes(version: pendingPrompt.latestVersion)
+            let prompt = configuration.updatePrompt(currentVersion: currentVersion, releaseNotes: releaseNotes) ?? pendingPrompt
             updateCheckResult = .available(prompt)
         }
     }
@@ -319,8 +279,7 @@ struct SettingsView: View {
                 dismissButton: .default(Text("知道了"))
             )
         case .available(let prompt):
-            let details = prompt.releaseNotes
-                ?? "更新说明暂时无法加载，请前往最新 Release 页面查看。"
+            let details = prompt.releaseNotes ?? "更新说明暂时无法加载，请前往最新 Release 页面查看。"
             let message: String
             if prompt.requirement == .required {
                 message = "当前版本 \(prompt.currentVersion) 已停止支持，请更新到 \(prompt.latestVersion) 后继续使用。\n\n\(details)"
@@ -367,10 +326,7 @@ struct SettingsView: View {
     }
 
     private var runtimeModeBinding: Binding<ProxyRuntimeMode> {
-        Binding(
-            get: { runtimeMode.mode },
-            set: { newMode in switchRuntimeMode(to: newMode) }
-        )
+        Binding(get: { runtimeMode.mode }, set: { newMode in switchRuntimeMode(to: newMode) })
     }
 
     private var motionSimulationBinding: Binding<Bool> {
@@ -472,9 +428,7 @@ struct SettingsView: View {
                 Label(copiedMITMHostnames ? "已复制两个解密域名" : "复制两个解密域名", systemImage: "doc.on.doc")
             }
 
-            Button {
-                openThirdPartyClient(thirdPartyClient.selectedClient)
-            } label: {
+            Button { openThirdPartyClient(thirdPartyClient.selectedClient) } label: {
                 Label("打开 \(thirdPartyClient.selectedClient.name)", systemImage: "arrow.up.forward.app")
             }
 
@@ -563,9 +517,7 @@ struct SettingsView: View {
                 do {
                     try await thirdPartyProxy.clear()
                 } catch {
-                    RuntimeLogger.warning("APP", "Mode", "切换 APP 模式前无法清除第三方坐标", details: [
-                        "错误": error.localizedDescription
-                    ])
+                    RuntimeLogger.warning("APP", "Mode", "切换 APP 模式前无法清除第三方坐标", details: ["错误": error.localizedDescription])
                 }
                 runtimeMode.setMode(.localWiFi)
                 await setup.prepareLocalServices()
@@ -647,9 +599,7 @@ struct SettingsView: View {
         modeOperationRunning = true
         Task { @MainActor in
             defer { modeOperationRunning = false }
-            if actions.virtualLocationEnabled {
-                actions.clear()
-            }
+            if actions.virtualLocationEnabled { actions.clear() }
             proxy.stop()
             do {
                 try setup.certificateStore.reset()
@@ -680,12 +630,8 @@ struct SettingsView: View {
     }
 
     private var virtualLocationIsActive: Bool {
-        if runtimeMode.mode == .localWiFi {
-            return actions.virtualLocationEnabled
-        }
-        if case .connected(let active) = thirdPartyProxy.connectionState {
-            return active
-        }
+        if runtimeMode.mode == .localWiFi { return actions.virtualLocationEnabled }
+        if case .connected(let active) = thirdPartyProxy.connectionState { return active }
         return false
     }
 }
