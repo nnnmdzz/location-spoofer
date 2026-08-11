@@ -35,17 +35,7 @@ struct TipSheetView: View {
 
 @MainActor
 private func openSettings(_ destination: SystemSettingsDestination) {
-    guard let appSettingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
-    // Try the preferred (private) URL scheme first; fall back to reliable app-settings:
-    if let preferredURL = destination.preferredURL, preferredURL != appSettingsURL {
-        UIApplication.shared.open(preferredURL) { opened in
-            if !opened {
-                UIApplication.shared.open(appSettingsURL)
-            }
-        }
-    } else {
-        UIApplication.shared.open(appSettingsURL)
-    }
+    SystemSettingsNavigator.open(destination)
 }
 
 // MARK: - 生效说明
