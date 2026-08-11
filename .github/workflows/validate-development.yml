@@ -58,7 +58,7 @@ jobs:
       - name: Build Device Release
         run: ./build.sh
 
-      - name: Boot available iOS Simulator
+      - name: Start available iOS Simulator
         id: simulator
         shell: bash
         run: |
@@ -66,7 +66,6 @@ jobs:
           UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(device["udid"] for devices in data["devices"].values() for device in devices if device.get("isAvailable") and device.get("name", "").startswith("iPhone")))')"
           test -n "$UDID"
           xcrun simctl boot "$UDID" 2>/dev/null || true
-          xcrun simctl bootstatus "$UDID" -b
           echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Run iOS unit tests
