@@ -20,7 +20,7 @@
 ./build.sh --test
 ```
 
-`--test` 默认使用名为 `iPhone 16` 的 Simulator。若本机没有该设备，请传入已安装设备的 destination：
+`--test` 默认自动选择当前环境中第一个可用的 iPhone Simulator。也可以传入指定的 destination：
 
 ```bash
 SIMULATOR_DESTINATION='platform=iOS Simulator,name=<你的模拟器名称>' ./build.sh --test

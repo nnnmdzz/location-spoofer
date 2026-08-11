@@ -43,6 +43,8 @@ grep -Fq 'appendingPathComponent("location-spoofer"' "$private_service" || fail 
 grep -Fq 'manifestURL.scheme?.lowercased() == "https"' "$private_service" || fail "private manifest must require HTTPS"
 grep -Fq 'components.scheme = "itms-services"' "$private_service" || fail "private update must hand off to iOS OTA installer"
 grep -Fq 'PrivateUpdateConfigurationStore' "$update_view" || fail "update UI must expose private configuration"
+grep -Fq 'guard result.updateAvailable else' "$update_view" || fail "private signing must require a newer public release"
+grep -Fq 'checkPrivateIfUpdateAvailable' "$update_view" || fail "all private update checks must share the newer-version gate"
 grep -Fq '直接安装已签名版本' "$update_view" || fail "update UI must expose direct signed install action"
 grep -Fq '复制 IPA 下载地址' "$update_view" || fail "unsigned fallback must remain available"
 

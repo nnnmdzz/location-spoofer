@@ -14,7 +14,9 @@ final class ThirdPartyProxyManagerTests: XCTestCase {
         XCTAssertEqual(requester.lastURL?.query, "action=query")
     }
 
-    func testSaveUsesFavoriteWGS84AndAcceptsMatchingResponse() async throws {
+    func testSaveUsesFavoriteWGS84AndGlobalAccuracy() async throws {
+        WlocAccuracyPreference.shared.select(.standard)
+        MotionSimulationStore.shared.setEnabled(false)
         let favorite = FavoriteLocation(
             name: "深圳湾",
             latitude: 22.494,
@@ -23,7 +25,7 @@ final class ThirdPartyProxyManagerTests: XCTestCase {
             mapCoordinateSystem: .gcj02
         )
         let wgs84 = favorite.coordinatePair.wgs84
-        let body = String(format: #"{"success":true,"longitude":%.8f,"latitude":%.8f,"accuracy":20}"#,
+        let body = String(format: #"{"success":true,"longitude":%.8f,"latitude":%.8f,"accuracy":25}"#,
                           locale: Locale(identifier: "en_US_POSIX"), wgs84.longitude, wgs84.latitude)
         let requester = FakeThirdPartyRequester(body: body)
         let manager = ThirdPartyProxyManager(requester: requester)
@@ -36,7 +38,7 @@ final class ThirdPartyProxyManagerTests: XCTestCase {
         let longitude = try XCTUnwrap(Double(values["lon"] ?? ""))
         XCTAssertEqual(latitude, wgs84.latitude, accuracy: 0.000_000_01)
         XCTAssertEqual(longitude, wgs84.longitude, accuracy: 0.000_000_01)
-        XCTAssertEqual(values["acc"], "20")
+        XCTAssertEqual(values["acc"], "25")
         XCTAssertEqual(values["motion"], "0")
         XCTAssertEqual(manager.connectionState, .connected(active: true))
     }
@@ -80,6 +82,8 @@ final class ThirdPartyProxyManagerTests: XCTestCase {
     }
 
     func testLegacyModuleCanStillSaveBasicCoordinates() async throws {
+        WlocAccuracyPreference.shared.select(.standard)
+        MotionSimulationStore.shared.setEnabled(false)
         let favorite = FavoriteLocation(
             name: "深圳湾",
             latitude: 22.494,
@@ -89,7 +93,7 @@ final class ThirdPartyProxyManagerTests: XCTestCase {
         )
         let wgs84 = favorite.coordinatePair.wgs84
         let body = String(
-            format: #"{"success":true,"longitude":%.8f,"latitude":%.8f,"accuracy":20}"#,
+            format: #"{"success":true,"longitude":%.8f,"latitude":%.8f,"accuracy":25}"#,
             locale: Locale(identifier: "en_US_POSIX"),
             wgs84.longitude,
             wgs84.latitude
@@ -103,7 +107,17 @@ final class ThirdPartyProxyManagerTests: XCTestCase {
         XCTAssertFalse(manager.moduleUpdateRecommended)
         XCTAssertEqual(manager.connectionState, .connected(active: true))
         XCTAssertEqual(requester.requestedURLs.map(\.path), ["/wloc-settings/save"])
-        XCTAssertNil(requester.requestedURLs.first?.query)
+        let components = URLComponents(
+            url: try XCTUnwrap(requester.requestedURLs.first),
+            resolvingAgainstBaseURL: false
+        )
+        let values = Dictionary(
+            uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value ?? "") }
+        )
+        XCTAssertEqual(values["acc"], "25")
+        XCTAssertEqual(values["motion"], "0")
+        XCTAssertNotNil(values["lon"])
+        XCTAssertNotNil(values["lat"])
     }
 
     func testBrokenSaveQueryFailsWithoutCheckingVersion() async {
