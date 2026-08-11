@@ -122,6 +122,7 @@ struct ForkUpdateCheckView: View {
                 if isCheckingPrivate {
                     HStack { ProgressView(); Text("正在检查 signed 版本…") }
                 } else if let privateStatus {
+                    valueRow("Bundle ID", value: privateStatus.bundleIdentifier)
                     if privateStatus.available {
                         HStack {
                             Text("signed 状态")
@@ -145,15 +146,20 @@ struct ForkUpdateCheckView: View {
                         }
                         .disabled(privateStatus.manifestURL == nil)
                     } else {
+                        let failed = privateStatus.state == "failed"
                         HStack {
                             Text("signed 状态")
                             Spacer()
-                            Text("准备中 / 暂不可用").foregroundStyle(.orange)
+                            Text(failed ? "签名失败" : "准备中 / 暂不可用")
+                                .foregroundStyle(failed ? .red : .orange)
+                        }
+                        if let errorCode = privateStatus.errorCode, !errorCode.isEmpty {
+                            valueRow("错误码", value: errorCode)
                         }
                         if let message = privateStatus.message, !message.isEmpty {
                             Text(message)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(failed ? .red : .secondary)
                         }
                     }
                 } else {
