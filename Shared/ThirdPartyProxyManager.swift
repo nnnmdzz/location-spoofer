@@ -92,10 +92,12 @@ final class ThirdPartyProxyManager: ObservableObject {
     @Published private(set) var moduleUpdateRecommended = false
     @Published private(set) var isRequesting = false
     private let requester: any ThirdPartyProxyRequesting
+    private let effectMonitor: LocationEffectMonitor?
 
     init(requester: (any ThirdPartyProxyRequesting)? = nil) {
         if let requester {
             self.requester = requester
+            self.effectMonitor = nil
         } else {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -103,6 +105,7 @@ final class ThirdPartyProxyManager: ObservableObject {
             configuration.timeoutIntervalForRequest = 8
             configuration.timeoutIntervalForResource = 10
             self.requester = URLSession(configuration: configuration)
+            self.effectMonitor = .shared
         }
     }
 
@@ -112,19 +115,24 @@ final class ThirdPartyProxyManager: ObservableObject {
         if active {
             activeSettings = response
             connectionState = .connected(active: true)
+            if let latitude = response.latitude, let longitude = response.longitude {
+                effectMonitor?.restoreActiveTarget(.init(latitude: latitude, longitude: longitude))
+            }
         } else {
             activeSettings = nil
             connectionState = .connected(active: false)
+            effectMonitor?.clear()
         }
         return response
     }
 
     func save(_ favorite: FavoriteLocation) async throws -> ThirdPartyProxySettingsResponse {
         let wgs84 = favorite.coordinatePair.wgs84
+        let accuracy = WlocAccuracyPreference.shared.meters
         let response = try await perform(action: .save(
             latitude: wgs84.latitude,
             longitude: wgs84.longitude,
-            accuracy: favorite.accuracy,
+            accuracy: accuracy,
             motionEnabled: MotionSimulationStore.shared.isEnabled
         ))
         guard response.success else {
@@ -138,10 +146,12 @@ final class ThirdPartyProxyManager: ObservableObject {
         }
         activeSettings = response
         connectionState = .connected(active: true)
+        effectMonitor?.activate(target: .init(latitude: latitude, longitude: longitude))
         RuntimeLogger.info("APP", "ThirdPartyProxy", "第三方代理已保存 WGS-84 坐标", details: [
             "坐标标准": "WGS-84",
             "取值字段": "coordinatePair.wgs84",
-            "accuracy": String(favorite.accuracy)
+            "accuracy": String(accuracy),
+            "accuracy来源": "全局WLOC精度配置"
         ])
         return response
     }
@@ -158,7 +168,7 @@ final class ThirdPartyProxyManager: ObservableObject {
         let response = try await perform(action: .save(
             latitude: latitude,
             longitude: longitude,
-            accuracy: current.accuracy ?? 25,
+            accuracy: current.accuracy ?? WlocAccuracyPreference.shared.meters,
             motionEnabled: enabled
         ))
         guard response.success else {
@@ -231,6 +241,7 @@ final class ThirdPartyProxyManager: ObservableObject {
         }
         activeSettings = nil
         connectionState = .connected(active: false)
+        effectMonitor?.clear()
         RuntimeLogger.info("APP", "ThirdPartyProxy", "第三方代理坐标已清除")
     }
 
