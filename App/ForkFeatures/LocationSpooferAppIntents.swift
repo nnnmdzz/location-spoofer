@@ -7,7 +7,15 @@ struct FavoriteLocationEntity: AppEntity, Sendable {
     static var defaultQuery = FavoriteLocationEntityQuery()
 
     let id: UUID
-    let name: String
+
+    @Property(title: "名称")
+    var name: String
+
+    @Property(title: "WGS-84 纬度")
+    var latitude: Double
+
+    @Property(title: "WGS-84 经度")
+    var longitude: Double
 
     var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(title: "\(name)")
@@ -33,6 +41,19 @@ private extension FavoriteLocationEntity {
     init(_ favorite: FavoriteLocation) {
         id = favorite.id
         name = favorite.name
+        latitude = favorite.latitude
+        longitude = favorite.longitude
+    }
+}
+
+@available(iOS 16.0, *)
+struct GetFavoriteLocationsIntent: AppIntent {
+    static var title: LocalizedStringResource = "获取收藏位置"
+    static var description = IntentDescription("返回 Location Spoofer 中保存的收藏位置列表和对应 WGS-84 坐标。")
+    static var openAppWhenRun = false
+
+    func perform() async throws -> some IntentResult & ReturnsValue<[FavoriteLocationEntity]> {
+        .result(value: FavoriteLocationStore().favorites.map(FavoriteLocationEntity.init))
     }
 }
 
@@ -85,6 +106,16 @@ struct VirtualLocationStatusIntent: AppIntent {
 @available(iOS 16.0, *)
 struct LocationSpooferAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: GetFavoriteLocationsIntent(),
+            phrases: [
+                "获取 \(.applicationName) 收藏位置",
+                "查看 \(.applicationName) 收藏列表"
+            ],
+            shortTitle: "获取收藏位置",
+            systemImageName: "star.fill"
+        )
+
         AppShortcut(
             intent: SetFavoriteVirtualLocationIntent(),
             phrases: [

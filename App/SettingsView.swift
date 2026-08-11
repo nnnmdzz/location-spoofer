@@ -100,12 +100,6 @@ struct SettingsView: View {
                     }
                 }
 
-                NavigationLink {
-                    ForkEnhancementsView()
-                } label: {
-                    Label("增强功能", systemImage: "sparkles")
-                }
-
                 Button { showingForkUpdateCheck = true } label: {
                     Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
                 }
