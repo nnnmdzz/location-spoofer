@@ -1,17 +1,19 @@
 import Foundation
 
 enum GitHubSubmission {
+    private static let repositoryBase = "https://github.com/nnnmdzz/location-spoofer"
+
     static let communityContributionURL = URL(
-        string: "https://github.com/xweiba/location-spoofer/discussions/new?category=%E7%AC%AC%E4%B8%89%E6%96%B9%E9%85%8D%E7%BD%AE%E5%88%86%E4%BA%AB"
+        string: "\(repositoryBase)/discussions/new?category=%E7%AC%AC%E4%B8%89%E6%96%B9%E9%85%8D%E7%BD%AE%E5%88%86%E4%BA%AB"
     )!
     static let usageHelpURL = URL(
-        string: "https://github.com/xweiba/location-spoofer/discussions/categories/%E4%BD%BF%E7%94%A8%E5%B8%AE%E5%8A%A9"
+        string: "\(repositoryBase)/discussions/categories/%E4%BD%BF%E7%94%A8%E5%B8%AE%E5%8A%A9"
     )!
     static let featureRequestURL = URL(
-        string: "https://github.com/xweiba/location-spoofer/discussions/categories/%E5%8A%9F%E8%83%BD%E5%BB%BA%E8%AE%AE"
+        string: "\(repositoryBase)/discussions/categories/%E5%8A%9F%E8%83%BD%E5%BB%BA%E8%AE%AE"
     )!
     static let bugReportURL = URL(
-        string: "https://github.com/xweiba/location-spoofer/issues/new?template=bug-report.yml"
+        string: "\(repositoryBase)/issues/new?template=bug-report.yml"
     )!
 
     static func communityContributionTemplate(
