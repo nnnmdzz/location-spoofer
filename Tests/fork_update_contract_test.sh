@@ -15,7 +15,7 @@ submission="Shared/GitHubSubmission.swift"
 grep -Fq 'https://api.github.com/repos/nnnmdzz/location-spoofer/releases?per_page=30' "$service" || fail "release API must use fork repo"
 grep -Fq 'browser_download_url' "$service" || fail "must decode GitHub browser_download_url"
 grep -Fq 'Location-Spoofer-' "$service" || fail "must validate versioned IPA asset name"
-grep -Fq 'Release \\(tag) 打包不完整，未找到 IPA' "$service" || fail "missing incomplete-release error"
+grep -Fq 'Release \(tag) 打包不完整，未找到 IPA' "$service" || fail "missing incomplete-release error"
 
 if grep -Fq '.task { await checkForUpdates() }' "$content"; then
   fail "ContentView must not auto-check updates"
