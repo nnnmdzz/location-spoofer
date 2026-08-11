@@ -101,10 +101,6 @@ final class RealtimeLocationManager: NSObject, ObservableObject, CLLocationManag
         await requestLocationSample(allowCache: true, desiredAccuracy: nil)?.coordinate
     }
 
-    /// Requests a sample produced after this call begins instead of accepting
-    /// the manager's recent cache. The requested accuracy is temporary and is
-    /// restored when the request completes. This is a best-effort Core Location
-    /// refresh; it does not clear locationd or disable GNSS at the system level.
     func requestFreshLocation(
         desiredAccuracy: CLLocationAccuracy = kCLLocationAccuracyHundredMeters
     ) async -> CLLocation? {

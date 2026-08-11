@@ -31,8 +31,8 @@ func generateCA() (certPEM, keyPEM []byte, err error) {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{"WLOC"},
-			CommonName:   "WLOC CA " + time.Now().In(time.FixedZone("CST", 8*3600)).Format("2006.01.02 15:04"),
+			Organization: []string{"Location Spoofer"},
+			CommonName:   "Location Spoofer CA",
 		},
 		NotBefore:             time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		NotAfter:              time.Date(2045, 1, 1, 0, 0, 0, 0, time.UTC),

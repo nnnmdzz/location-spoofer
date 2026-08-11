@@ -1,0 +1,11 @@
+#!name=Apple WLOC 定位修改
+#!desc=Location Spoofer 第三方代理模块
+#!author=xweiba
+#!homepage=https://github.com/xweiba/location-spoofer
+
+[Script]
+http-response ^https?:\/\/gs-loc(-cn)?\.apple\.com\/clls\/wloc script-path=https://raw.githubusercontent.com/xweiba/location-spoofer/main/ThirdParty/WlocScripts/dist/v1/wloc.js, requires-body=true, binary-body-mode=true, timeout=30, tag=Apple WLOC
+http-request ^https?:\/\/gs-loc(-cn)?\.apple\.com\/wloc-settings\/(save|version) script-path=https://raw.githubusercontent.com/xweiba/location-spoofer/main/ThirdParty/WlocScripts/dist/v1/wloc-settings.js, timeout=10, tag=WLOC Settings
+
+[MITM]
+hostname = gs-loc.apple.com, gs-loc-cn.apple.com

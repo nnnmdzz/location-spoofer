@@ -1,11 +1,14 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var setup = SetupCoordinator()
     @ObservedObject private var runtimeMode = ProxyRuntimeModeStore.shared
+    @ObservedObject private var remoteConfiguration = AppRemoteConfigurationStore.shared
     @State private var phase: AppPhase = .splash
-    @State private var verifiedDuringInitialSetup = false
-    @AppStorage("setupCompleted") private var setupCompleted = false
+    @State private var updatePrompt: AppUpdatePrompt?
+    @State private var requiredUpdatePrompt: AppUpdatePrompt?
 
     enum AppPhase { case splash, setup, map }
 
@@ -29,14 +32,19 @@ struct ContentView: View {
                     MapHomeView(setup: setup)
                 }
                 .fullScreenCover(isPresented: $setup.needsSetup) {
-                    FirstSetupView(setup: setup, onComplete: {
-                        setupCompleted = true
-                        setup.completeSetup()
-                    })
+                    FirstSetupView(setup: setup, onComplete: finishPresentedSetup)
                 }
             }
         }
         .task { await bootstrap() }
+        .task { await checkForUpdates() }
+        .onChange(of: scenePhase) { newPhase in
+            guard newPhase == .active, let requiredUpdatePrompt else { return }
+            updatePrompt = requiredUpdatePrompt
+        }
+        .alert(item: $updatePrompt) { prompt in
+            updateAlert(for: prompt)
+        }
     }
 
     @MainActor
@@ -50,14 +58,14 @@ struct ContentView: View {
         }
 
         let launchMode = runtimeMode.mode
-        guard setupCompleted else {
+        guard runtimeMode.isInitialized(launchMode) else {
             if launchMode == .localWiFi {
                 await setup.prepareLocalServices()
                 setup.requestSetup()
             } else {
                 ProxyManager.shared.stop()
                 BackgroundKeepAlive.shared.stop()
-                setup.requestThirdPartySetup()
+                setup.requestThirdPartyOnboarding()
             }
             phase = .setup
             return
@@ -67,7 +75,7 @@ struct ContentView: View {
             await setup.prepareLocalServices()
         } else {
             ProxyManager.shared.stop()
-            setup.completeSetup()
+            BackgroundKeepAlive.shared.stop()
             RuntimeLogger.info("APP", "Startup", "第三方代理测试模式：跳过本地 CA、代理和环境检测")
         }
         do {
@@ -118,26 +126,89 @@ struct ContentView: View {
         }
         guard !Task.isCancelled else { return }
 
-        if launchMode == .thirdParty {
-            setup.completeSetup()
-        } else if verifiedDuringInitialSetup {
-            verifiedDuringInitialSetup = false
-            setup.completeSetup()
-        } else if setupCompleted {
-            let result = await setup.runVerificationTest()
-            setup.applyVerificationResult(result)
-        } else {
-            setup.requestSetup()
-        }
+        setup.completeSetup()
         RuntimeLogger.info("APP", "Startup", "启动门禁全部完成，现在创建 MapHomeView")
         phase = .map
     }
 
     private func finishInitialSetup() {
-        verifiedDuringInitialSetup = runtimeMode.mode == .localWiFi
-        setupCompleted = true
+        let completedMode = runtimeMode.mode
+        runtimeMode.markInitialized(completedMode)
         setup.completeSetup()
         phase = .splash
         Task { await bootstrap() }
+    }
+
+    private func finishPresentedSetup() {
+        runtimeMode.markInitialized(runtimeMode.mode)
+        setup.completeSetup()
+    }
+
+    @MainActor
+    private func checkForUpdates() async {
+        let currentVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? AppRemoteConfiguration.fallback.latestVersion
+        let configuration: AppRemoteConfiguration
+        if let remote = await AppRemoteConfigurationService.fetch() {
+            remoteConfiguration.apply(remote)
+            configuration = remote
+        } else {
+            configuration = remoteConfiguration.configuration
+        }
+        guard let pendingPrompt = configuration.updatePrompt(currentVersion: currentVersion) else { return }
+        let releaseNotes = await AppRemoteConfigurationService.fetchReleaseNotes(
+            version: pendingPrompt.latestVersion
+        )
+        guard !Task.isCancelled,
+              let prompt = configuration.updatePrompt(
+                currentVersion: currentVersion,
+                releaseNotes: releaseNotes
+              ) else {
+            return
+        }
+        if prompt.requirement == .required {
+            requiredUpdatePrompt = prompt
+        }
+        updatePrompt = prompt
+    }
+
+    private func updateAlert(for prompt: AppUpdatePrompt) -> Alert {
+        switch prompt.requirement {
+        case .required:
+            let details = prompt.releaseNotes
+                ?? "更新说明暂时无法加载，请前往最新 Release 页面查看。"
+            return Alert(
+                title: Text("需要更新"),
+                message: Text(
+                    "当前版本 \(prompt.currentVersion) 已停止支持，请更新到 \(prompt.latestVersion) 后继续使用。\n\n\(details)"
+                ),
+                dismissButton: .default(Text("立即更新")) {
+                    openUpdatePage(requiredPrompt: prompt)
+                }
+            )
+        case .recommended:
+            let details = prompt.releaseNotes
+                ?? "更新说明暂时无法加载，请前往最新 Release 页面查看。"
+            return Alert(
+                title: Text("发现新版本"),
+                message: Text(
+                    "当前版本 \(prompt.currentVersion)，最新版本 \(prompt.latestVersion)。\n\n\(details)"
+                ),
+                primaryButton: .default(Text("前往更新")) {
+                    openUpdatePage(requiredPrompt: nil)
+                },
+                secondaryButton: .cancel(Text("稍后"))
+            )
+        }
+    }
+
+    private func openUpdatePage(requiredPrompt: AppUpdatePrompt?) {
+        UIApplication.shared.open(AppRemoteConfigurationService.releasesURL)
+        guard requiredPrompt != nil else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            updatePrompt = self.requiredUpdatePrompt
+        }
     }
 }

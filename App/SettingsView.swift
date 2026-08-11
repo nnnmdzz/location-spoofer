@@ -1,5 +1,22 @@
 import SwiftUI
 
+private enum UpdateCheckResult: Identifiable {
+    case current(currentVersion: String, latestVersion: String)
+    case available(AppUpdatePrompt)
+    case failed
+
+    var id: String {
+        switch self {
+        case .current(let currentVersion, let latestVersion):
+            return "current-\(currentVersion)-\(latestVersion)"
+        case .available(let prompt):
+            return "available-\(prompt.id)"
+        case .failed:
+            return "failed"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var setup: SetupCoordinator
     @ObservedObject var actions: LocationActionCoordinator
@@ -7,12 +24,19 @@ struct SettingsView: View {
     @ObservedObject private var runtimeMode = ProxyRuntimeModeStore.shared
     @ObservedObject private var thirdPartyProxy = ThirdPartyProxyManager.shared
     @ObservedObject private var thirdPartyClient = ThirdPartyProxyClientStore.shared
+    @ObservedObject private var motionSimulation = MotionSimulationStore.shared
+    @ObservedObject private var moduleSource = ThirdPartyModuleSourceStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var activeTip: TipKind?
     @State private var proxyOperationError = ""
     @State private var proxyOperationAlertTitle = "代理操作失败"
     @State private var modeOperationRunning = false
     @State private var copiedClient: ThirdPartyProxyClient?
+    @State private var copiedMITMHostnames = false
+    @State private var showCertificateResetConfirmation = false
+    @State private var githubDestination: SafariDestination?
+    @State private var isCheckingForUpdates = false
+    @State private var updateCheckResult: UpdateCheckResult?
 
     var body: some View {
         Form {
@@ -25,11 +49,6 @@ struct SettingsView: View {
                 .pickerStyle(.inline)
                 .disabled(modeOperationRunning || actions.state.isBusy || thirdPartyProxy.isRequesting)
 
-                if runtimeMode.mode == .thirdParty {
-                    Label("测试模式：仅 Shadowrocket 当前可测试", systemImage: "testtube.2")
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                }
             }
 
             Section("状态") {
@@ -65,28 +84,39 @@ struct SettingsView: View {
                 }
             }
 
-            WlocAccuracySettingsSection()
+            Section("定位模拟") {
+                Toggle("运动状态模拟", isOn: motionSimulationBinding)
+                    .disabled(
+                        modeOperationRunning ||
+                        actions.state.isBusy ||
+                        thirdPartyProxy.isRequesting
+                    )
+                Text("实验性功能，默认关闭。开启后会同时模拟定位响应中的运动状态。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
 
             if runtimeMode.mode == .thirdParty {
                 thirdPartyConfigurationSection
             } else {
                 Section("说明") {
-                Button {
-                    activeTip = .activation
-                } label: {
-                    Label("生效说明", systemImage: "checklist")
+                    Button {
+                        activeTip = .activation
+                    } label: {
+                        Label("生效说明", systemImage: "checklist")
+                    }
+                    Button {
+                        activeTip = .deactivation
+                    } label: {
+                        Label("失效说明", systemImage: "arrow.uturn.backward.circle")
+                    }
+                    Button {
+                        activeTip = .removeProxy
+                    } label: {
+                        Label("关闭 WiFi 代理", systemImage: "wifi.slash")
+                    }
                 }
-                Button {
-                    activeTip = .deactivation
-                } label: {
-                    Label("失效说明", systemImage: "arrow.uturn.backward.circle")
-                }
-                Button {
-                    activeTip = .removeProxy
-                } label: {
-                    Label("关闭 WiFi 代理", systemImage: "wifi.slash")
-                }
-                }
+
             }
 
             Section("工作原理") {
@@ -103,14 +133,68 @@ struct SettingsView: View {
                         Label("进入引导页", systemImage: "arrow.clockwise.circle")
                     }
                 }
+                Button {
+                    checkForUpdates()
+                } label: {
+                    if isCheckingForUpdates {
+                        HStack {
+                            ProgressView()
+                            Text("正在检查…")
+                        }
+                    } else {
+                        Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+                .disabled(isCheckingForUpdates)
                 valueRow("版本", value: versionText)
+            }
+
+            if runtimeMode.mode == .localWiFi {
+                Section("证书") {
+                    Button(role: .destructive) {
+                        showCertificateResetConfirmation = true
+                    } label: {
+                        Label("重置证书", systemImage: "arrow.clockwise.circle")
+                    }
+                    .disabled(modeOperationRunning || actions.state.isBusy)
+
+                    Text("仅删除 App 钥匙串中的设备 CA。iOS 中已经安装的旧证书需要在系统设置里手动移除。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("支持") {
                 NavigationLink {
                     BugReportView(setup: setup)
                 } label: {
-                    Label("报告 Issue", systemImage: "ladybug")
+                    Label("报告 Bug", systemImage: "ladybug")
+                }
+
+                Button {
+                    githubDestination = SafariDestination(url: GitHubSubmission.usageHelpURL)
+                } label: {
+                    Label("使用帮助", systemImage: "questionmark.circle")
+                }
+
+                Button {
+                    githubDestination = SafariDestination(url: GitHubSubmission.featureRequestURL)
+                } label: {
+                    Label("功能建议", systemImage: "lightbulb")
+                }
+
+                if runtimeMode.mode == .thirdParty {
+                    Button {
+                        UIPasteboard.general.string = GitHubSubmission.communityContributionTemplate(
+                            for: thirdPartyClient.selectedClient,
+                            systemVersion: UIDevice.current.systemVersion
+                        )
+                        githubDestination = SafariDestination(
+                            url: GitHubSubmission.communityContributionURL
+                        )
+                    } label: {
+                        Label("分享第三方配置", systemImage: "square.and.arrow.up")
+                    }
                 }
             }
 
@@ -146,6 +230,10 @@ struct SettingsView: View {
         .sheet(item: $activeTip) { kind in
             TipSheetView(kind: kind)
         }
+        .sheet(item: $githubDestination) { destination in
+            SafariView(url: destination.url)
+                .ignoresSafeArea()
+        }
         .alert(proxyOperationAlertTitle, isPresented: Binding(
             get: { !proxyOperationError.isEmpty },
             set: { if !$0 { proxyOperationError = "" } }
@@ -153,6 +241,31 @@ struct SettingsView: View {
             Button("知道了", role: .cancel) {}
         } message: {
             Text(proxyOperationError)
+        }
+        .alert(item: $updateCheckResult) { result in
+            updateCheckAlert(for: result)
+        }
+        .confirmationDialog(
+            "重置证书？",
+            isPresented: $showCertificateResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("重置并生成新证书", role: .destructive) {
+                resetCertificateAuthority()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前虚拟定位和本地代理将停止。App 会删除钥匙串中的设备 CA、立即生成新证书，并打开安装与信任引导。你还需要前往 iOS「设置 → 通用 → VPN 与设备管理」手动删除旧证书，然后重新下载安装并完全信任新证书。")
+        }
+        .task(id: runtimeMode.mode) {
+            guard runtimeMode.mode == .thirdParty, !modeOperationRunning else { return }
+            if !(await thirdPartyProxy.refreshAdvancedFeatureAvailability()) {
+                disableUnsupportedThirdPartyMotionSimulation()
+            }
+        }
+        .onChange(of: thirdPartyProxy.moduleUpdateRecommended) { updateRecommended in
+            guard updateRecommended else { return }
+            disableUnsupportedThirdPartyMotionSimulation()
         }
     }
 
@@ -164,6 +277,71 @@ struct SettingsView: View {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         return "\(v) (\(b))"
+    }
+
+    private func checkForUpdates() {
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        Task { @MainActor in
+            defer { isCheckingForUpdates = false }
+            guard let configuration = await AppRemoteConfigurationService.fetch() else {
+                updateCheckResult = .failed
+                return
+            }
+            AppRemoteConfigurationStore.shared.apply(configuration)
+            let currentVersion = Bundle.main.object(
+                forInfoDictionaryKey: "CFBundleShortVersionString"
+            ) as? String ?? AppRemoteConfiguration.fallback.latestVersion
+            guard let pendingPrompt = configuration.updatePrompt(currentVersion: currentVersion) else {
+                updateCheckResult = .current(
+                    currentVersion: currentVersion,
+                    latestVersion: configuration.latestVersion
+                )
+                return
+            }
+            let releaseNotes = await AppRemoteConfigurationService.fetchReleaseNotes(
+                version: pendingPrompt.latestVersion
+            )
+            let prompt = configuration.updatePrompt(
+                currentVersion: currentVersion,
+                releaseNotes: releaseNotes
+            ) ?? pendingPrompt
+            updateCheckResult = .available(prompt)
+        }
+    }
+
+    private func updateCheckAlert(for result: UpdateCheckResult) -> Alert {
+        switch result {
+        case .current(let currentVersion, let latestVersion):
+            return Alert(
+                title: Text("已是最新版本"),
+                message: Text("当前版本 \(currentVersion)，远程最新版本 \(latestVersion)。"),
+                dismissButton: .default(Text("知道了"))
+            )
+        case .available(let prompt):
+            let details = prompt.releaseNotes
+                ?? "更新说明暂时无法加载，请前往最新 Release 页面查看。"
+            let message: String
+            if prompt.requirement == .required {
+                message = "当前版本 \(prompt.currentVersion) 已停止支持，请更新到 \(prompt.latestVersion) 后继续使用。\n\n\(details)"
+            } else {
+                message = "当前版本 \(prompt.currentVersion)，最新版本 \(prompt.latestVersion)。\n\n\(details)"
+            }
+            return Alert(
+                title: Text(prompt.requirement == .required ? "需要更新" : "发现新版本"),
+                message: Text(message),
+                primaryButton: .default(Text("前往更新")) {
+                    UIApplication.shared.open(AppRemoteConfigurationService.releasesURL)
+                },
+                secondaryButton: .cancel(Text("稍后"))
+            )
+        case .failed:
+            return Alert(
+                title: Text("检查更新失败"),
+                message: Text("无法获取远程版本信息，请检查网络后重试。"),
+                dismissButton: .default(Text("知道了"))
+            )
+        }
     }
 
     private var proxyBinding: Binding<Bool> {
@@ -195,6 +373,55 @@ struct SettingsView: View {
         )
     }
 
+    private var motionSimulationBinding: Binding<Bool> {
+        Binding(
+            get: { motionSimulation.isEnabled },
+            set: { enabled in
+                if runtimeMode.mode == .localWiFi {
+                    proxy.applyMotionSimulation(enabled)
+                    return
+                }
+                guard thirdPartyProxy.activeSettings?.success == true else {
+                    guard enabled else {
+                        motionSimulation.setEnabled(false)
+                        return
+                    }
+                    modeOperationRunning = true
+                    Task { @MainActor in
+                        if await thirdPartyProxy.refreshAdvancedFeatureAvailability() {
+                            motionSimulation.setEnabled(true)
+                        } else {
+                            presentMotionSimulationModuleUpdateAlert()
+                        }
+                        modeOperationRunning = false
+                    }
+                    return
+                }
+                modeOperationRunning = true
+                Task { @MainActor in
+                    do {
+                        _ = try await thirdPartyProxy.updateMotionSimulation(enabled)
+                        motionSimulation.setEnabled(enabled)
+                    } catch {
+                        RuntimeLogger.error(
+                            "APP",
+                            "ThirdPartyProxy",
+                            "同步运动状态设置失败",
+                            error: error,
+                            details: ["当前客户端": thirdPartyClient.selectedClient.name]
+                        )
+                        if error as? ThirdPartyProxyError == .moduleOutdated {
+                            presentMotionSimulationModuleUpdateAlert()
+                        } else {
+                            setup.requestThirdPartySetup(message: error.localizedDescription)
+                        }
+                    }
+                    modeOperationRunning = false
+                }
+            }
+        )
+    }
+
     @ViewBuilder
     private var thirdPartyConfigurationSection: some View {
         Section("第三方代理配置") {
@@ -207,19 +434,42 @@ struct SettingsView: View {
                 }
             }
 
-            HStack {
-                Text("验证状态")
-                Spacer()
-                Text(thirdPartyClient.selectedClient.verificationText)
+            Toggle("使用国内镜像下载模块", isOn: Binding(
+                get: { moduleSource.useMirror },
+                set: { moduleSource.setUseMirror($0) }
+            ))
+            Text("仅影响之后复制和重新导入的模块地址；已安装模块需要重新导入后切换来源。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            if thirdPartyProxy.moduleUpdateRecommended {
+                Text("当前模块版本较旧，基础坐标功能仍可继续使用。重新导入最新模块后可使用版本检测和运动状态模拟。")
                     .font(.footnote)
-                    .foregroundStyle(thirdPartyClient.selectedClient == .shadowrocket ? .green : .orange)
+                    .foregroundStyle(.orange)
+            }
+
+            if let verificationText = thirdPartyClient.selectedClient.verificationText {
+                HStack {
+                    Text("验证状态")
+                    Spacer()
+                    Text(verificationText)
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                }
             }
 
             Button {
                 UIPasteboard.general.string = thirdPartyClient.selectedClient.subscriptionURL.absoluteString
                 copiedClient = thirdPartyClient.selectedClient
             } label: {
-                Label(copiedClient == thirdPartyClient.selectedClient ? "已复制订阅链接" : "复制订阅链接", systemImage: "doc.on.doc")
+                Label(copiedClient == thirdPartyClient.selectedClient ? "已复制模块订阅地址" : "复制模块订阅地址", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                UIPasteboard.general.string = ThirdPartyProxyManager.interceptionHostnamesText
+                copiedMITMHostnames = true
+            } label: {
+                Label(copiedMITMHostnames ? "已复制两个解密域名" : "复制两个解密域名", systemImage: "doc.on.doc")
             }
 
             Button {
@@ -229,7 +479,7 @@ struct SettingsView: View {
             }
 
             Button {
-                setup.requestThirdPartySetup()
+                setup.requestThirdPartyOnboarding()
                 dismiss()
             } label: {
                 Label("重新打开配置引导", systemImage: "arrow.clockwise.circle")
@@ -243,7 +493,7 @@ struct SettingsView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
 
-            Text("复制链接后，在对应代理客户端中添加模块/重写订阅，并启用 MITM。第三方客户端保存坐标后，即使关闭本 App，坐标仍由代理客户端持久化并继续生效。")
+            Text("复制模块订阅地址后，在对应代理客户端中添加模块/重写订阅，并为 gs-loc.apple.com 和 gs-loc-cn.apple.com 启用 MITM。第三方客户端保存坐标后，即使关闭本 App，坐标仍由代理客户端持久化并继续生效。")
                 .font(.footnote).foregroundStyle(.secondary)
         }
     }
@@ -281,7 +531,7 @@ struct SettingsView: View {
         return """
         App 在设备本地运行一个代理服务器（127.0.0.1:8888）。
 
-        通过 WiFi 手动代理配置，让系统的定位请求（gs-loc.apple.com/clls/wloc）经过这个本地代理。代理使用已安装的 CA 证书对 HTTPS 流量做中间人解密，把 Apple 返回的定位坐标改写为你设置的虚拟坐标，再加密返回给系统，从而实现虚拟定位。
+        通过 WiFi 手动代理配置，让系统发往 gs-loc.apple.com 和 gs-loc-cn.apple.com 的定位请求经过这个本地代理。代理使用已安装的 CA 证书对 HTTPS 流量做中间人解密，把 Apple 返回的定位坐标改写为你设置的虚拟坐标，再加密返回给系统，从而实现虚拟定位。
         """
     }
 
@@ -296,9 +546,19 @@ struct SettingsView: View {
                 proxy.stop()
                 setup.completeSetup()
                 runtimeMode.setMode(.thirdParty)
-                setup.requestThirdPartySetup()
-                proxyOperationAlertTitle = "模式已切换"
-                proxyOperationError = "已切换到第三方代理模式。请关闭 Wi-Fi 中的 127.0.0.1:8888 手动代理，并按引导导入第三方配置。"
+                if runtimeMode.isInitialized(.thirdParty) {
+                    do {
+                        _ = try await thirdPartyProxy.validateConnection()
+                        refreshThirdPartyAdvancedFeatures()
+                        proxyOperationAlertTitle = "模式已切换"
+                        proxyOperationError = "第三方代理模式检测通过。请关闭 Wi-Fi 中的 127.0.0.1:8888 手动代理，避免双重拦截。"
+                    } catch {
+                        openThirdPartySetup(for: error)
+                    }
+                } else {
+                    setup.requestThirdPartyOnboarding()
+                    dismiss()
+                }
             case .localWiFi:
                 do {
                     try await thirdPartyProxy.clear()
@@ -309,23 +569,100 @@ struct SettingsView: View {
                 }
                 runtimeMode.setMode(.localWiFi)
                 await setup.prepareLocalServices()
-                setup.requestSetup()
-                proxyOperationAlertTitle = "模式已切换"
-                proxyOperationError = "已切换到 APP 模式。请停用第三方 WLOC 模块或代理连接，避免双重拦截。"
+                if runtimeMode.isInitialized(.localWiFi) {
+                    let result = await setup.runVerificationTest()
+                    setup.applyVerificationResult(result)
+                    if result.isSuccess {
+                        proxyOperationAlertTitle = "模式已切换"
+                        proxyOperationError = "APP 模式环境检测通过。请停用第三方 WLOC 模块或代理连接，避免双重拦截。"
+                    } else {
+                        dismiss()
+                    }
+                } else {
+                    setup.requestSetup()
+                    dismiss()
+                }
             }
         }
     }
 
     private func detectThirdPartyConnection() {
+        let client = thirdPartyClient.selectedClient
+        let startedAt = Date()
         Task { @MainActor in
             do {
-                let response = try await thirdPartyProxy.query()
-                if !response.success, response.error?.contains("无已保存") != true {
-                    proxyOperationAlertTitle = "检测失败"
-                    proxyOperationError = response.error ?? "第三方代理模块返回失败"
-                }
+                _ = try await thirdPartyProxy.validateConnection()
+                refreshThirdPartyAdvancedFeatures()
+                RuntimeLogger.info("APP", "ThirdPartyProxy", "设置页第三方连接检测通过", details: [
+                    "当前客户端": client.name,
+                    "请求动作": "WLOC query",
+                    "耗时毫秒": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
+                ])
+                runtimeMode.markInitialized(.thirdParty)
             } catch {
-                proxyOperationAlertTitle = "检测失败"
+                RuntimeLogger.error(
+                    "APP",
+                    "ThirdPartyProxy",
+                    "设置页第三方连接检测失败",
+                    error: error,
+                    details: [
+                        "当前客户端": client.name,
+                        "请求动作": "WLOC query",
+                        "连接状态": String(describing: thirdPartyProxy.connectionState),
+                        "耗时毫秒": String(Int(Date().timeIntervalSince(startedAt) * 1_000)),
+                        "处理建议": ThirdPartyProxyError.recoverySuggestion(for: error)
+                    ]
+                )
+                openThirdPartySetup(for: error)
+            }
+        }
+    }
+
+    private func refreshThirdPartyAdvancedFeatures() {
+        Task { @MainActor in
+            if !(await thirdPartyProxy.refreshAdvancedFeatureAvailability()) {
+                disableUnsupportedThirdPartyMotionSimulation()
+            }
+        }
+    }
+
+    private func presentMotionSimulationModuleUpdateAlert() {
+        disableUnsupportedThirdPartyMotionSimulation()
+        proxyOperationAlertTitle = "无法开启运动状态模拟"
+        proxyOperationError = "当前模块脚本不支持运动状态模拟，请重新导入最新模块脚本后再开启。基础坐标功能仍可继续使用。"
+    }
+
+    private func disableUnsupportedThirdPartyMotionSimulation() {
+        guard runtimeMode.mode == .thirdParty else { return }
+        motionSimulation.setEnabled(false)
+    }
+
+    private func openThirdPartySetup(for error: Error) {
+        setup.requestThirdPartySetup(message: error.localizedDescription)
+        dismiss()
+    }
+
+    private func resetCertificateAuthority() {
+        guard runtimeMode.mode == .localWiFi, !modeOperationRunning else { return }
+        modeOperationRunning = true
+        Task { @MainActor in
+            defer { modeOperationRunning = false }
+            if actions.virtualLocationEnabled {
+                actions.clear()
+            }
+            proxy.stop()
+            do {
+                try setup.certificateStore.reset()
+                runtimeMode.resetInitialization(.localWiFi)
+                guard await setup.prepareLocalServices() else {
+                    proxyOperationAlertTitle = "证书重置失败"
+                    proxyOperationError = setup.message
+                    return
+                }
+                setup.requestCertificateSetup()
+                dismiss()
+            } catch {
+                proxyOperationAlertTitle = "证书重置失败"
                 proxyOperationError = error.localizedDescription
             }
         }

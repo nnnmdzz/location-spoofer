@@ -7,6 +7,7 @@ final class SetupCoordinator: ObservableObject {
     @Published var message = ""
     @Published var isBrowsingWithoutTrust = false
     @Published var testLog = ""
+    @Published private(set) var lastVerificationResult: VerificationResult?
     // 启动检测失败才弹引导页；检测通过则保持 false
     @Published var needsSetup = false
     @Published private(set) var setupStep: SetupStep = .proxy
@@ -27,17 +28,22 @@ final class SetupCoordinator: ObservableObject {
 
     /// Local services are prepared before the setup UI so the environment test
     /// can distinguish Wi-Fi proxy configuration from CA trust failures.
-    func prepareLocalServices() async {
+    @discardableResult
+    func prepareLocalServices() async -> Bool {
         do {
             _ = try certificateStore.ensure()
             if !proxy.isRunning { try await proxy.start() }
+            message = ""
+            return true
         } catch {
             message = "本地代理初始化失败：\(error.localizedDescription)"
             RuntimeLogger.error("APP", "Startup", "本地服务初始化失败", error: error)
+            return false
         }
     }
 
     func applyVerificationResult(_ result: VerificationResult) {
+        lastVerificationResult = result
         switch result {
         case .success:
             trustState = .trusted
@@ -48,6 +54,8 @@ final class SetupCoordinator: ObservableObject {
             setupStep = .cert
             needsSetup = true
             message = "CA 证书未安装或未信任"
+        case .verificationInProgress, .verificationSuperseded:
+            break
         default:
             trustState = .unavailable
             setupStep = .proxy
@@ -60,14 +68,32 @@ final class SetupCoordinator: ObservableObject {
     func browseMapWithoutSetup() { isBrowsingWithoutTrust = true; needsSetup = false }
     func completeSetup() { needsSetup = false }
     func requestModeSelection() {
+        lastVerificationResult = nil
+        message = ""
         setupStep = .mode
         needsSetup = true
     }
-    func requestThirdPartySetup() {
+    func requestThirdPartyOnboarding() {
+        lastVerificationResult = nil
+        message = ""
         setupStep = .thirdPartyClient
         needsSetup = true
     }
-    func requestSetup() {
+    func requestThirdPartySetup(message: String) {
+        lastVerificationResult = nil
+        self.message = message
+        setupStep = .thirdPartyImport
+        needsSetup = true
+    }
+    func requestCertificateSetup() {
+        lastVerificationResult = nil
+        message = ""
+        setupStep = .cert
+        needsSetup = true
+    }
+    func requestSetup(message: String = "") {
+        lastVerificationResult = nil
+        self.message = message
         setupStep = .proxy
         needsSetup = true
     }

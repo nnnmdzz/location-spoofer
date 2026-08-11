@@ -71,9 +71,6 @@ final class LocationActionCoordinator: ObservableObject {
         }
     }
 
-    /// Commits a target after SetupCoordinator has completed verification.
-    /// This method is synchronous on MainActor so selection revision validation
-    /// and the final settings/proxy write cannot be interleaved by a newer map event.
     func applyVerified(_ favorite: FavoriteLocation) -> Bool {
         guard proxy.isRunning else {
             failApply(ProxyError.startFailed)
@@ -106,8 +103,6 @@ final class LocationActionCoordinator: ObservableObject {
     }
 
     private func commit(_ favorite: FavoriteLocation) -> Bool {
-        // WLOC 合约固定使用持久化的 WGS-84 值，不依赖当前地图坐标标准。
-        // Accuracy is a global runtime preference so old favorites do not need migration.
         let wgs = favorite.coordinatePair.wgs84
         let accuracy = WlocAccuracyPreference.shared.meters
         let value = WlocSettings(

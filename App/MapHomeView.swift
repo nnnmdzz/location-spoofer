@@ -53,6 +53,8 @@ struct MapHomeView: View {
     @ObservedObject private var proxy = ProxyManager.shared
     @ObservedObject private var runtimeMode = ProxyRuntimeModeStore.shared
     @ObservedObject private var thirdPartyProxy = ThirdPartyProxyManager.shared
+    @ObservedObject private var thirdPartyClient = ThirdPartyProxyClientStore.shared
+    @ObservedObject private var remoteConfiguration = AppRemoteConfigurationStore.shared
     @StateObject private var realtime = RealtimeLocationManager.shared
     @StateObject private var mapState: MapLocationState
     @ObservedObject private var net = NetworkMonitor.shared
@@ -69,6 +71,11 @@ struct MapHomeView: View {
     @State private var activeTip: TipKind?
     @State private var manualHint = ""
     private let tipPreferences = VirtualLocationTipPreferences()
+    private let communityPromptPreferences = ThirdPartyCommunityPromptPreferences()
+    @State private var pendingCommunityContributionClient: ThirdPartyProxyClient?
+    @State private var communityContributionClient: ThirdPartyProxyClient?
+    @State private var showCommunityTemplateCopied = false
+    @State private var githubDestination: SafariDestination?
     @State private var editingFavorite: FavoriteLocation?
     @State private var editName = ""
     @State private var reverseGeocodeTask: Task<Void, Never>?
@@ -261,6 +268,47 @@ struct MapHomeView: View {
         .sheet(item: $activeTip) { kind in
             TipSheetView(kind: kind, runtimeMode: runtimeMode.mode)
         }
+        .sheet(item: $githubDestination) { destination in
+            SafariView(url: destination.url)
+                .ignoresSafeArea()
+        }
+        .alert("社区分享成功配置？", isPresented: Binding(
+            get: { communityContributionClient != nil },
+            set: { if !$0 { communityContributionClient = nil } }
+        )) {
+            Button("去提交") {
+                guard let client = communityContributionClient else { return }
+                UIPasteboard.general.string = GitHubSubmission.communityContributionTemplate(
+                    for: client,
+                    systemVersion: UIDevice.current.systemVersion
+                )
+                openCommunityContributionPage()
+            }
+            Button("复制模板") {
+                guard let client = communityContributionClient else { return }
+                UIPasteboard.general.string = GitHubSubmission.communityContributionTemplate(
+                    for: client,
+                    systemVersion: UIDevice.current.systemVersion
+                )
+                showCommunityTemplateCopied = true
+            }
+            if communityPromptPreferences.canSuppress() {
+                Button("不再提示", role: .cancel) {
+                    communityPromptPreferences.suppress()
+                }
+            } else {
+                Button("取消", role: .cancel) {}
+            }
+        } message: {
+            Text(
+                "你正在使用 \(communityContributionClient?.name ?? "第三方客户端")。点击“去提交”会先复制投稿模板，并在 App 内打开社区页面。采纳后将收录到 README，可选择是否匿名署名。"
+            )
+        }
+        .alert("已复制投稿模板", isPresented: $showCommunityTemplateCopied) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text("如果 GitHub 登录或浏览器跳转后模板没有自动填充，可以直接粘贴。")
+        }
         .alert("无法直接跳转", isPresented: Binding(
             get: { !manualHint.isEmpty },
             set: { if !$0 { manualHint = "" } }
@@ -269,8 +317,6 @@ struct MapHomeView: View {
         } message: { Text(manualHint) }
         .onAppear {
             startMapRuntimeOnce()
-            // ContentView performs the startup environment test before this map
-            // view is constructed. Do not immediately run it again here.
             if runtimeMode.mode == .localWiFi {
                 registerWiFiChangeObserver()
             } else {
@@ -303,6 +349,13 @@ struct MapHomeView: View {
             if runtimeMode.mode == .localWiFi, !running && spoofState == .active {
                 spoofState = .idle
                 actions.clear()
+            }
+        }
+        .onChange(of: showEnableTip) { isPresented in
+            guard !isPresented, let client = pendingCommunityContributionClient else { return }
+            pendingCommunityContributionClient = nil
+            DispatchQueue.main.async {
+                communityContributionClient = client
             }
         }
         .onChange(of: runtimeMode.mode) { mode in
@@ -588,17 +641,31 @@ struct MapHomeView: View {
                     activeSpoofLat = response.latitude
                     activeSpoofLon = response.longitude
                     RuntimeLogger.info("APP", "定位", "第三方代理坐标同步成功", details: [
+                        "当前客户端": thirdPartyClient.selectedClient.name,
                         "坐标标准": "WGS-84",
                         "客户端模式": "测试模式",
                         "选点期间发生变化": String(selectionRevision != mapState.selection.revision)
                     ])
                     presentSuccessfulOperationTip(.activation)
+                    queueCommunityContributionPrompt(for: thirdPartyClient.selectedClient)
                 } catch {
                     guard operationID == locationOperationID else { return }
                     // A failed replacement does not clear the coordinate that
                     // was already persisted inside the third-party client.
                     spoofState = wasActive ? .active : .idle
-                    manualHint = error.localizedDescription
+                    RuntimeLogger.error(
+                        "APP",
+                        "ThirdPartyProxy",
+                        "同步坐标到第三方客户端失败",
+                        error: error,
+                        details: [
+                            "当前客户端": thirdPartyClient.selectedClient.name,
+                            "请求动作": "WLOC save",
+                            "恢复状态": wasActive ? "保留原第三方坐标" : "保持未启用",
+                            "处理建议": ThirdPartyProxyError.recoverySuggestion(for: error)
+                        ]
+                    )
+                    setup.requestThirdPartySetup(message: error.localizedDescription)
                 }
                 if operationID == locationOperationID {
                     locationOperationTask = nil
@@ -640,12 +707,13 @@ struct MapHomeView: View {
                     "result": result.id,
                     "spoofState": String(describing: spoofState)
                 ])
-                if result == .certNotTrusted {
-                    RuntimeLogger.warning("APP", "定位", "开启前检测发现证书异常，进入证书安装引导")
+                if result != .verificationInProgress,
+                   result != .verificationSuperseded {
+                    RuntimeLogger.warning("APP", "定位", "开启前检测失败，进入对应环境引导", details: [
+                        "结果": result.id
+                    ])
                     activeTip = nil
                     setup.applyVerificationResult(result)
-                } else if let tip = result.tipKind {
-                    activeTip = tip
                 }
             }
             locationOperationTask = nil
@@ -667,7 +735,19 @@ struct MapHomeView: View {
                     presentSuccessfulOperationTip(.deactivation)
                 } catch {
                     spoofState = .active
-                    manualHint = error.localizedDescription
+                    RuntimeLogger.error(
+                        "APP",
+                        "ThirdPartyProxy",
+                        "清除第三方客户端坐标失败",
+                        error: error,
+                        details: [
+                            "当前客户端": thirdPartyClient.selectedClient.name,
+                            "请求动作": "WLOC clear",
+                            "恢复状态": "保留已启用状态",
+                            "处理建议": ThirdPartyProxyError.recoverySuggestion(for: error)
+                        ]
+                    )
+                    setup.requestThirdPartySetup(message: error.localizedDescription)
                 }
                 locationOperationTask = nil
             }
@@ -698,6 +778,23 @@ struct MapHomeView: View {
         case .deactivation:
             showDisableTip = true
         }
+    }
+
+    private func queueCommunityContributionPrompt(for client: ThirdPartyProxyClient) {
+        guard remoteConfiguration.requestsCommunityPrompt(for: client),
+              communityPromptPreferences.shouldPresent() else {
+            return
+        }
+        communityPromptPreferences.recordPresentation()
+        if showEnableTip {
+            pendingCommunityContributionClient = client
+        } else {
+            communityContributionClient = client
+        }
+    }
+
+    private func openCommunityContributionPage() {
+        githubDestination = SafariDestination(url: GitHubSubmission.communityContributionURL)
     }
 
 
@@ -990,14 +1087,21 @@ struct MapHomeView: View {
                 } else {
                     spoofState = .idle
                     RuntimeLogger.warning("APP", "ThirdPartyProxy", "第三方代理查询返回失败", details: [
+                        "当前客户端": thirdPartyClient.selectedClient.name,
+                        "请求动作": "WLOC query",
                         "错误": response.error ?? "未知错误"
                     ])
+                    setup.requestThirdPartySetup(message: response.error ?? "第三方代理查询失败")
                 }
             } catch {
                 spoofState = .idle
                 RuntimeLogger.warning("APP", "ThirdPartyProxy", "启动后第三方代理状态查询失败", details: [
+                    "当前客户端": thirdPartyClient.selectedClient.name,
+                    "请求动作": "WLOC query",
+                    "连接状态": String(describing: thirdPartyProxy.connectionState),
                     "错误": error.localizedDescription
                 ])
+                setup.requestThirdPartySetup(message: error.localizedDescription)
             }
             locationOperationTask = nil
         }
@@ -1039,7 +1143,8 @@ struct MapHomeView: View {
                     "网络可用": String(net.isSatisfied),
                     "Wi-Fi接口": String(net.isWiFiEnabled)
                 ])
-                activeTip = .proxySetup
+                activeTip = nil
+                setup.requestSetup(message: "当前未连接可用的 Wi-Fi，请连接 Wi-Fi 后配置 127.0.0.1:8888 手动代理。")
                 return
             }
 
@@ -1066,21 +1171,15 @@ struct MapHomeView: View {
                     continue
                 }
 
-                if result == .certNotTrusted {
-                    RuntimeLogger.warning("APP", "WiFi", "后台环境检测发现证书异常，进入证书安装引导")
-                    activeTip = nil
-                    setup.applyVerificationResult(result)
-                    return
-                }
-
-                let tip = result.wifiChangeReminderTipKind
                 RuntimeLogger.info("APP", "WiFi", "后台环境检测完成", details: [
                     "结果": result.id,
-                    "success": String(result.isSuccess),
-                    "提示": tip?.rawValue ?? "无"
+                    "success": String(result.isSuccess)
                 ])
-                if !result.isSuccess, let tip {
-                    activeTip = tip
+                if !result.isSuccess,
+                   result != .verificationInProgress,
+                   result != .verificationSuperseded {
+                    activeTip = nil
+                    setup.applyVerificationResult(result)
                 } else if result == .verificationInProgress {
                     RuntimeLogger.warning("APP", "WiFi", "环境检测连续被占用，本次不重复弹窗")
                 }

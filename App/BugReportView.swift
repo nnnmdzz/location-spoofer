@@ -7,15 +7,17 @@ struct BugReportView: View {
     @State private var isReproducible = true
     @State private var isRunning = false
     @State private var showCopiedAlert = false
+    @State private var githubDestination: SafariDestination?
     @ObservedObject private var runtimeMode = ProxyRuntimeModeStore.shared
     @ObservedObject private var thirdPartyProxy = ThirdPartyProxyManager.shared
+    @ObservedObject private var thirdPartyClient = ThirdPartyProxyClientStore.shared
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     // 说明
-                    Text("遇到问题时，在这里生成 Issue 报告。系统会运行一次诊断测试，将测试结果和你的描述一起复制到剪切板，然后跳转到 GitHub 提交。")
+                    Text("遇到问题时，在这里生成 Bug 报告。系统会运行一次诊断测试，并将完整报告复制到剪切板。跳转到 GitHub 后，请粘贴到“App 生成的诊断报告”字段。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -54,7 +56,7 @@ struct BugReportView: View {
                         if isRunning {
                             ProgressView().tint(.white)
                         }
-                        Text(isRunning ? "正在生成报告…" : "生成 Issue 报告")
+                        Text(isRunning ? "正在生成报告…" : "生成 Bug 报告")
                             .font(.body.weight(.medium))
                     }
                     .frame(maxWidth: .infinity)
@@ -67,20 +69,21 @@ struct BugReportView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
         }
-        .navigationTitle("报告 Issue")
+        .navigationTitle("报告 Bug")
         .navigationBarTitleDisplayMode(.inline)
         .alert("已生成", isPresented: $showCopiedAlert) {
-            Button("跳转到 GitHub") {
-                dismiss()
-                if let url = URL(string: "https://github.com/xweiba/location-spoofer/issues/new") {
-                    UIApplication.shared.open(url)
-                }
+            Button("打开 GitHub 表单") {
+                githubDestination = SafariDestination(url: GitHubSubmission.bugReportURL)
             }
             Button("稍后再说", role: .cancel) {
                 dismiss()
             }
         } message: {
-            Text("Issue 报告已复制到剪切板。请在 GitHub Issues 页面粘贴并提交。")
+            Text("Bug 报告已复制到剪切板。请在 GitHub 表单的“App 生成的诊断报告”字段中粘贴并提交。")
+        }
+        .sheet(item: $githubDestination) { destination in
+            SafariView(url: destination.url)
+                .ignoresSafeArea()
         }
     }
 
@@ -115,6 +118,7 @@ struct BugReportView: View {
             App 版本: \(appVersion)
             系统版本: iOS \(systemVersion)
             运行模式: \(runtimeMode.mode.displayName)
+            第三方客户端: \(runtimeMode.mode == .thirdParty ? thirdPartyClient.selectedClient.name : "不适用")
             可复现环境: \(isReproducible ? "是" : "否")
 
             ### 问题描述

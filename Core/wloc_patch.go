@@ -20,10 +20,16 @@ const (
 )
 
 type wlocCoords struct {
-	Latitude  float64
-	Longitude float64
-	Accuracy  int
+	Latitude                float64
+	Longitude               float64
+	Accuracy                int
+	MotionSimulationEnabled bool
 }
+
+const (
+	motionActivityType       = 63
+	motionActivityConfidence = 467
+)
 
 type patchStats struct {
 	WiFi      int
@@ -40,6 +46,8 @@ type wireField struct {
 }
 
 var macPattern = regexp.MustCompile(`^[0-9a-fA-F]{1,2}(:[0-9a-fA-F]{1,2}){5}$`)
+
+var wlocMarker = []byte{0, 0, 0, 1, 0, 0}
 
 func minInt(a, b int) int {
 	if a < b {
@@ -177,6 +185,7 @@ func patchLocation(loc []byte, c wlocCoords) ([]byte, bool, error) {
 	lon := int64(math.Round(c.Longitude * 1e8))
 	var out []byte
 	changed := false
+	hasMotionType, hasMotionConfidence := false, false
 	for _, f := range fields {
 		switch {
 		case f.num == 1 && f.wireType == wireVarint:
@@ -197,9 +206,33 @@ func patchLocation(loc []byte, c wlocCoords) ([]byte, bool, error) {
 				changed = true
 			}
 			out = append(out, raw...)
+		case c.MotionSimulationEnabled && f.num == 11 && f.wireType == wireVarint:
+			hasMotionType = true
+			raw := append(writeTag(11, wireVarint), writeVarint(motionActivityType)...)
+			if !bytes.Equal(raw, f.raw) {
+				changed = true
+			}
+			out = append(out, raw...)
+		case c.MotionSimulationEnabled && f.num == 12 && f.wireType == wireVarint:
+			hasMotionConfidence = true
+			raw := append(writeTag(12, wireVarint), writeVarint(motionActivityConfidence)...)
+			if !bytes.Equal(raw, f.raw) {
+				changed = true
+			}
+			out = append(out, raw...)
 		default:
 			out = append(out, f.raw...)
 		}
+	}
+	if c.MotionSimulationEnabled && !hasMotionType {
+		out = append(out, writeTag(11, wireVarint)...)
+		out = append(out, writeVarint(motionActivityType)...)
+		changed = true
+	}
+	if c.MotionSimulationEnabled && !hasMotionConfidence {
+		out = append(out, writeTag(12, wireVarint)...)
+		out = append(out, writeVarint(motionActivityConfidence)...)
+		changed = true
 	}
 	return out, changed, nil
 }
@@ -314,6 +347,99 @@ func patchWlocPayload(payload []byte, c wlocCoords, st *patchStats) ([]byte, boo
 	return out, changed, nil
 }
 
+func parseARPCPayloadBounds(body []byte) (lengthOffset, payloadOffset, payloadEnd int, err error) {
+	if len(body) < 2 {
+		return 0, 0, 0, errors.New("ARPC body too short")
+	}
+
+	offset := 2 // version
+	for range 3 {
+		if offset+2 > len(body) {
+			return 0, 0, 0, errors.New("truncated ARPC string length")
+		}
+		length := int(binary.BigEndian.Uint16(body[offset : offset+2]))
+		offset += 2
+		if length > len(body)-offset {
+			return 0, 0, 0, errors.New("truncated ARPC string")
+		}
+		offset += length
+	}
+
+	const functionAndLengthBytes = 8
+	if offset+functionAndLengthBytes > len(body) {
+		return 0, 0, 0, errors.New("truncated ARPC header")
+	}
+	lengthOffset = offset + 4
+	payloadOffset = lengthOffset + 4
+	payloadLength := uint64(binary.BigEndian.Uint32(body[lengthOffset:payloadOffset]))
+	if payloadLength == 0 || payloadLength > uint64(len(body)-payloadOffset) {
+		return 0, 0, 0, errors.New("invalid ARPC payload length")
+	}
+	return lengthOffset, payloadOffset, payloadOffset + int(payloadLength), nil
+}
+
+func patchARPCFrame(body []byte, c wlocCoords) ([]byte, patchStats, error) {
+	lengthOffset, payloadOffset, payloadEnd, err := parseARPCPayloadBounds(body)
+	if err != nil {
+		return nil, patchStats{}, err
+	}
+
+	var st patchStats
+	payload := body[payloadOffset:payloadEnd]
+	newPayload, changed, err := patchWlocPayload(payload, c, &st)
+	if err != nil {
+		return nil, patchStats{}, err
+	}
+	if !changed || bytes.Equal(newPayload, payload) {
+		return nil, patchStats{}, errors.New("ARPC envelope has no patchable wloc payload")
+	}
+
+	var lenBytes [4]byte
+	binary.BigEndian.PutUint32(lenBytes[:], uint32(len(newPayload)))
+	out := append(cloneBytes(body[:lengthOffset]), lenBytes[:]...)
+	out = append(out, newPayload...)
+	out = append(out, body[payloadEnd:]...)
+	return out, st, nil
+}
+
+func patchMarkerFrame(body []byte, c wlocCoords) ([]byte, patchStats, error) {
+	markerOffset := bytes.Index(body, wlocMarker)
+	if markerOffset < 0 {
+		return nil, patchStats{}, errors.New("wloc marker not found")
+	}
+
+	lengthOffset := markerOffset + len(wlocMarker)
+	payloadOffset := lengthOffset + 2
+	if payloadOffset > len(body) {
+		return nil, patchStats{}, errors.New("truncated marker frame")
+	}
+	payloadLength := int(binary.BigEndian.Uint16(body[lengthOffset:payloadOffset]))
+	if payloadLength == 0 || payloadLength > len(body)-payloadOffset {
+		return nil, patchStats{}, errors.New("invalid marker payload length")
+	}
+	payloadEnd := payloadOffset + payloadLength
+
+	var st patchStats
+	payload := body[payloadOffset:payloadEnd]
+	newPayload, changed, err := patchWlocPayload(payload, c, &st)
+	if err != nil {
+		return nil, patchStats{}, err
+	}
+	if !changed || bytes.Equal(newPayload, payload) {
+		return nil, patchStats{}, errors.New("marker frame has no patchable wloc payload")
+	}
+	if len(newPayload) > 65535 {
+		return nil, patchStats{}, errors.New("patched marker payload too large")
+	}
+
+	var lenBytes [2]byte
+	binary.BigEndian.PutUint16(lenBytes[:], uint16(len(newPayload)))
+	out := append(cloneBytes(body[:lengthOffset]), lenBytes[:]...)
+	out = append(out, newPayload...)
+	out = append(out, body[payloadEnd:]...)
+	return out, st, nil
+}
+
 func patchFrame(body []byte, offset int, c wlocCoords, st *patchStats) ([]byte, patchStats, error) {
 	if len(body) < offset+10 {
 		return nil, *st, fmt.Errorf("body too short: %d, base=%d", len(body), offset)
@@ -352,6 +478,13 @@ func patchFrame(body []byte, offset int, c wlocCoords, st *patchStats) ([]byte, 
 }
 
 func patchWlocBody(body []byte, c wlocCoords) ([]byte, patchStats, error) {
+	if out, st, err := patchARPCFrame(body, c); err == nil {
+		return out, st, nil
+	}
+	if out, st, err := patchMarkerFrame(body, c); err == nil {
+		return out, st, nil
+	}
+
 	var st patchStats
 	offsets := []int{0, 2, 4, 6, 8, 10, 12, 14, 16}
 	seen := map[int]bool{}
