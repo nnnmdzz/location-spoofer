@@ -1,0 +1,31 @@
+name: Apple WLOC 定位修改
+desc: Location Spoofer 第三方代理模块
+author: xweiba
+homepage: https://github.com/xweiba/location-spoofer
+category: Tools
+
+http:
+  mitm:
+    - "gs-loc.apple.com"
+    - "gs-loc-cn.apple.com"
+  script:
+    - match: ^https?:\/\/gs-loc(-cn)?\.apple\.com\/clls\/wloc
+      name: WLOC.Location
+      type: response
+      require-body: true
+      binary-mode: true
+      max-size: 0
+      timeout: 30
+    - match: ^https?:\/\/gs-loc(-cn)?\.apple\.com\/wloc-settings\/(save|version)
+      name: WLOC.Settings
+      type: request
+      require-body: false
+      timeout: 10
+
+script-providers:
+  WLOC.Location:
+    url: https://raw.githubusercontent.com/xweiba/location-spoofer/main/ThirdParty/WlocScripts/dist/v1/wloc.js
+    interval: 86400
+  WLOC.Settings:
+    url: https://raw.githubusercontent.com/xweiba/location-spoofer/main/ThirdParty/WlocScripts/dist/v1/wloc-settings.js
+    interval: 86400

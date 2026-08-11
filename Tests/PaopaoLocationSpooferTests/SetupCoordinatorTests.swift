@@ -33,16 +33,50 @@ final class SetupCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.setupStep, .proxy)
     }
 
-    func testWiFiChangeMapsLocalProxyStartFailureToProxyReminder() {
-        XCTAssertEqual(VerificationResult.proxyNotRunning.wifiChangeReminderTipKind, .proxySetup)
+    func testExplicitCertificateRequestRoutesToCertificateStep() {
+        let coordinator = SetupCoordinator()
+
+        coordinator.requestCertificateSetup()
+
+        XCTAssertTrue(coordinator.needsSetup)
+        XCTAssertEqual(coordinator.setupStep, .cert)
     }
 
-    func testWiFiChangeDoesNotPresentFailureForConcurrentVerification() {
-        XCTAssertNil(VerificationResult.verificationInProgress.wifiChangeReminderTipKind)
+    func testThirdPartyFailureRequestPreservesErrorAndRoutesToImportGuide() {
+        let coordinator = SetupCoordinator()
+
+        coordinator.requestThirdPartySetup(message: "模块未连接")
+
+        XCTAssertTrue(coordinator.needsSetup)
+        XCTAssertEqual(coordinator.setupStep, .thirdPartyImport)
+        XCTAssertEqual(coordinator.message, "模块未连接")
     }
 
-    func testWiFiChangeCertificateFailureDoesNotUseGenericReminder() {
-        XCTAssertNil(VerificationResult.certNotTrusted.wifiChangeReminderTipKind)
-        XCTAssertNil(VerificationResult.certNotTrusted.tipKind)
+    func testThirdPartyOnboardingStartsWithClientSelection() {
+        let coordinator = SetupCoordinator()
+
+        coordinator.requestThirdPartyOnboarding()
+
+        XCTAssertTrue(coordinator.needsSetup)
+        XCTAssertEqual(coordinator.setupStep, .thirdPartyClient)
+        XCTAssertTrue(coordinator.message.isEmpty)
+    }
+
+    func testProxyFailurePreservesResultForPresentedGuide() {
+        let coordinator = SetupCoordinator()
+
+        coordinator.applyVerificationResult(.proxyNotRunning)
+
+        XCTAssertEqual(coordinator.lastVerificationResult, .proxyNotRunning)
+        XCTAssertTrue(coordinator.needsSetup)
+        XCTAssertEqual(coordinator.setupStep, .proxy)
+    }
+
+    func testConcurrentVerificationDoesNotOpenGuide() {
+        let coordinator = SetupCoordinator()
+
+        coordinator.applyVerificationResult(.verificationInProgress)
+
+        XCTAssertFalse(coordinator.needsSetup)
     }
 }

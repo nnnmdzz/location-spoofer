@@ -55,6 +55,11 @@ func wloccore_validateca(certData, keyData *C.char) C.int {
 
 //export wloccore_startproxy
 func wloccore_startproxy(certData, keyData *C.char, lat, lon C.double, enabled C.int, accuracy C.int) C.uintptr_t {
+	return wloccore_startproxyv2(certData, keyData, lat, lon, enabled, accuracy, 0)
+}
+
+//export wloccore_startproxyv2
+func wloccore_startproxyv2(certData, keyData *C.char, lat, lon C.double, enabled C.int, accuracy C.int, motionEnabled C.int) C.uintptr_t {
 	if certData == nil || keyData == nil {
 		return 0
 	}
@@ -65,6 +70,7 @@ func wloccore_startproxy(certData, keyData *C.char, lat, lon C.double, enabled C
 		float64(lon),
 		enabled != 0,
 		int(accuracy),
+		motionEnabled != 0,
 	)
 	if err != nil {
 		logEvent("startproxy failed: " + err.Error())
@@ -106,13 +112,21 @@ func proxyForHandle(h C.uintptr_t) (server *http.Server, handle cgo.Handle, ok b
 
 //export wloccore_setcoords
 func wloccore_setcoords(lat, lon C.double, enabled C.int, accuracy C.int) {
+	wloccore_setpatchconfig(lat, lon, enabled, accuracy, 0)
+}
+
+//export wloccore_setpatchconfig
+func wloccore_setpatchconfig(lat, lon C.double, enabled C.int, accuracy C.int, motionEnabled C.int) {
 	stateMu.Lock()
 	currentLat = float64(lat)
 	currentLon = float64(lon)
 	currentEnabled = enabled != 0
 	currentAccuracy = int(accuracy)
+	currentMotionSimulationEnabled = motionEnabled != 0
 	stateMu.Unlock()
-	logEvent("setcoords enabled=" + strconv.FormatBool(enabled != 0) + " accuracy=" + strconv.Itoa(int(accuracy)))
+	logEvent("setpatchconfig enabled=" + strconv.FormatBool(enabled != 0) +
+		" accuracy=" + strconv.Itoa(int(accuracy)) +
+		" motion=" + strconv.FormatBool(motionEnabled != 0))
 }
 
 //export wloccore_getcoords

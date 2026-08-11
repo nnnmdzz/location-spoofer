@@ -1,0 +1,59 @@
+title: "[第三方配置分享] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢分享已验证的第三方客户端配置。请先移除账号、订阅、密码、设备标识、真实位置等敏感信息。
+        截图除敏感信息遮挡外不要添加箭头、编号或说明文字，维护者会统一裁剪和标注。
+  - type: dropdown
+    id: client
+    attributes:
+      label: 第三方客户端
+      options:
+        - Shadowrocket
+        - Surge
+        - Quantumult X
+        - Loon
+        - Stash
+        - Egern
+    validations:
+      required: true
+  - type: input
+    id: client-version
+    attributes:
+      label: 第三方客户端版本
+      placeholder: 例如 2.2.70
+    validations:
+      required: true
+  - type: input
+    id: ios-version
+    attributes:
+      label: iOS 版本
+      placeholder: 例如 iOS 26.5
+    validations:
+      required: true
+  - type: textarea
+    id: setup-steps
+    attributes:
+      label: 配置步骤
+      description: 请描述模块导入、证书或解密设置、代理连接和最终验证过程。
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图与补充说明
+      description: 可以直接拖入脱敏原图，并说明每张图片对应的步骤。
+    validations:
+      required: false
+  - type: checkboxes
+    id: attribution
+    attributes:
+      label: README 收录署名
+      options:
+        - label: 匿名收录，不在 README 展示投稿账号
+          required: false

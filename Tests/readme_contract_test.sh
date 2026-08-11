@@ -52,6 +52,22 @@ test "$(grep -c '^## ' "$ZH")" -eq "$(grep -c '^## ' "$EN")" \
 ! grep -Eq '^## (许可证|License)$' "$ZH" "$EN" || fail "README must not claim a repository license"
 grep -q '当前项目不支持在 Windows 上直接构建 iOS 应用' "$ZH" || fail "Chinese README must reject Windows source builds"
 grep -q 'Building the iOS app directly on Windows is not supported' "$EN" || fail "English README must reject Windows source builds"
+grep -q 'docs/COMMUNITY_TUTORIALS.md' "$ZH" || fail "Chinese README must link the community tutorial submission guide"
+grep -q '^#### 配置接口与客户端适配$' "$ZH" \
+  || fail "Chinese README must document the third-party integration contract"
+grep -q '^#### Configuration API and Client Integration$' "$EN" \
+  || fail "English README must document the third-party integration contract"
+for contract in 'action=query' 'action=clear' 'lon=<WGS-84'; do
+  grep -q "$contract" "$ZH" || fail "Chinese README is missing third-party contract: $contract"
+  grep -q "$contract" "$EN" || fail "English README is missing third-party contract: $contract"
+done
+grep -q '除敏感信息遮挡外，不要自行添加箭头、编号、边框、说明文字或其他标注' \
+  "$ROOT/docs/COMMUNITY_TUTORIALS.md" \
+  || fail "tutorial submissions must keep source screenshots free of non-privacy annotations"
+grep -q '同一张截图可以对应多个步骤' "$ROOT/docs/COMMUNITY_TUTORIALS.md" \
+  || fail "tutorial submissions must explain multi-step screenshot handling"
+grep -q '不得覆盖上述原图' "$ROOT/docs/COMMUNITY_TUTORIALS.md" \
+  || fail "annotated app assets must not replace categorized source screenshots"
 
 if grep -Rnw --include='*.md' --include='*.sh' \
   "$ROOT/build.sh" "$ROOT/README.md" "$ROOT/README.en.md" "$ROOT/docs" "$ROOT/Scripts" \

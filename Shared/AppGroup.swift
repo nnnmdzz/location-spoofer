@@ -44,6 +44,50 @@ enum WlocSettingsStore {
     }
 }
 
+@MainActor
+final class MotionSimulationStore: ObservableObject {
+    static let shared = MotionSimulationStore()
+
+    private enum Key {
+        static let enabled = "motionSimulation.enabled"
+    }
+
+    @Published private(set) var isEnabled: Bool
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = AppGroup.defaults) {
+        self.defaults = defaults
+        isEnabled = defaults.bool(forKey: Key.enabled)
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+        defaults.set(enabled, forKey: Key.enabled)
+    }
+}
+
+@MainActor
+final class ThirdPartyModuleSourceStore: ObservableObject {
+    static let shared = ThirdPartyModuleSourceStore()
+
+    private enum Key {
+        static let useMirror = "thirdPartyModule.useMirror"
+    }
+
+    @Published private(set) var useMirror: Bool
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = AppGroup.defaults) {
+        self.defaults = defaults
+        useMirror = defaults.object(forKey: Key.useMirror) as? Bool ?? true
+    }
+
+    func setUseMirror(_ enabled: Bool) {
+        useMirror = enabled
+        defaults.set(enabled, forKey: Key.useMirror)
+    }
+}
+
 enum VirtualLocationTipKind: Equatable {
     case activation
     case deactivation
@@ -114,5 +158,41 @@ struct VirtualLocationTipPreferences {
         case .activation: return Key.activationSuppressed
         case .deactivation: return Key.deactivationSuppressed
         }
+    }
+}
+
+/// Controls the optional prompt asking users to share a verified third-party setup.
+struct ThirdPartyCommunityPromptPreferences {
+    static let minimumCountForSuppression = 3
+
+    private enum Key {
+        static let presentationCount = "thirdPartyCommunityPrompt.presentationCount"
+        static let suppressed = "thirdPartyCommunityPrompt.suppressed"
+    }
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = AppGroup.defaults) {
+        self.defaults = defaults
+    }
+
+    @discardableResult
+    func recordPresentation() -> Int {
+        let next = defaults.integer(forKey: Key.presentationCount) + 1
+        defaults.set(next, forKey: Key.presentationCount)
+        return next
+    }
+
+    func shouldPresent() -> Bool {
+        !defaults.bool(forKey: Key.suppressed)
+    }
+
+    func canSuppress() -> Bool {
+        defaults.integer(forKey: Key.presentationCount) >= Self.minimumCountForSuppression
+    }
+
+    func suppress() {
+        guard canSuppress() else { return }
+        defaults.set(true, forKey: Key.suppressed)
     }
 }

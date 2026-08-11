@@ -97,6 +97,28 @@ final class CertificateAuthorityStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("ca-key.pem").path))
     }
 
+    func testResetRemovesKeychainAndLegacyAuthority() throws {
+        let directory = try makeLegacyDirectory(authority: validAuthority)
+        let keychain = InMemoryCertificateAuthorityKeychain()
+        keychain.stored = validAuthority
+        let store = makeStore(directory: directory, keychain: keychain) { self.validAuthority }
+
+        try store.reset()
+
+        XCTAssertNil(keychain.stored)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testResetFailurePreservesKeychainAuthority() {
+        let keychain = InMemoryCertificateAuthorityKeychain()
+        keychain.stored = validAuthority
+        keychain.shouldFailRemove = true
+        let store = makeStore(keychain: keychain) { self.validAuthority }
+
+        XCTAssertThrowsError(try store.reset())
+        XCTAssertEqual(keychain.stored, validAuthority)
+    }
+
     private func makeStore(
         directory: URL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
         keychain: InMemoryCertificateAuthorityKeychain,
@@ -121,11 +143,13 @@ final class CertificateAuthorityStoreTests: XCTestCase {
 
 private enum CertificateAuthorityStoreTestError: Error {
     case saveFailed
+    case removeFailed
 }
 
 private final class InMemoryCertificateAuthorityKeychain: CertificateAuthorityKeychain {
     var stored: CertificateAuthority?
     var shouldFailSave = false
+    var shouldFailRemove = false
 
     func load() throws -> CertificateAuthority? { stored }
 
@@ -135,6 +159,7 @@ private final class InMemoryCertificateAuthorityKeychain: CertificateAuthorityKe
     }
 
     func remove() throws {
+        guard !shouldFailRemove else { throw CertificateAuthorityStoreTestError.removeFailed }
         stored = nil
     }
 }

@@ -141,6 +141,12 @@ final class CertificateAuthorityStore {
         try loadValidKeychainAuthority()
     }
 
+    func reset() throws {
+        try removeLegacyFiles()
+        try keychain.remove()
+        RuntimeLogger.info("SHARED", "Certificate.store", "已删除设备 CA，等待重新生成")
+    }
+
     private func loadValidKeychainAuthority() throws -> CertificateAuthority? {
         guard let authority = try keychain.load() else { return nil }
         guard validator(authority) else {
@@ -163,16 +169,20 @@ final class CertificateAuthorityStore {
     }
 
     private func removeLegacyFilesBestEffort() {
-        let fileManager = FileManager.default
-        // Remove private material first. Each item is retried on later launches
-        // when a valid Keychain authority is available.
-        for url in [keyURL, certificateURL] where fileManager.fileExists(atPath: url.path) {
-            do {
-                try fileManager.removeItem(at: url)
-            } catch {
-                RuntimeLogger.error("SHARED", "Certificate.store", "删除旧 CA 文件失败，将在下次启动重试", error: error)
-            }
+        do {
+            try removeLegacyFiles()
+        } catch {
+            RuntimeLogger.error("SHARED", "Certificate.store", "删除旧 CA 文件失败，将在下次启动重试", error: error)
         }
-        try? fileManager.removeItem(at: directory)
+    }
+
+    private func removeLegacyFiles() throws {
+        let fileManager = FileManager.default
+        for url in [keyURL, certificateURL] where fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+        if fileManager.fileExists(atPath: directory.path) {
+            try fileManager.removeItem(at: directory)
+        }
     }
 }

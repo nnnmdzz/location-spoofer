@@ -1,6 +1,6 @@
 import Foundation
 
-/// 环境验证结果，UI 层根据此值弹出对应的引导面板。
+/// 环境验证结果，由 SetupCoordinator 统一路由到对应引导页面。
 enum VerificationResult: Equatable, Identifiable {
     case success
     case proxyNotRunning
@@ -26,27 +26,4 @@ enum VerificationResult: Equatable, Identifiable {
 
     var isSuccess: Bool { self == .success }
 
-    /// 对应的引导页类型
-    var tipKind: TipKind? {
-        switch self {
-        case .success: return nil
-        case .proxyNotRunning, .verificationInProgress, .verificationSuperseded: return nil
-        case .certNotTrusted: return nil
-        case .wifiProxyNotConfigured: return .proxySetup
-        case .coordinateWriteFailed, .patchFailed: return .rewriteFailed
-        }
-    }
-
-    /// Wi-Fi 变化后仍留在地图页显示的提醒。
-    /// 证书失败必须进入完整证书安装引导，因此不在这里返回通用提示页。
-    var wifiChangeReminderTipKind: TipKind? {
-        switch self {
-        case .proxyNotRunning:
-            return .proxySetup
-        case .certNotTrusted, .verificationInProgress, .verificationSuperseded:
-            return nil
-        default:
-            return tipKind
-        }
-    }
 }

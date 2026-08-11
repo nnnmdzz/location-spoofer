@@ -12,7 +12,7 @@ responses in a controlled test environment.
 [![iOS 15+](https://img.shields.io/badge/iOS-15%2B-111111?logo=apple)](project.yml)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-F05138)](project.yml)
 [![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go)](Core/go.mod)
-[![Version](https://img.shields.io/badge/version-v1.0.2-2563EB)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.0.5-2563EB)](docs/CHANGELOG.md)
 
 [Features](#feature-overview) ·
 [How It Works](#how-it-works) ·
@@ -134,6 +134,57 @@ In this mode:
 - Wi-Fi, 4G, and 5G support depends on the client;
 - The configuration may remain active after Location Spoofer closes.
 
+#### Configuration API and Client Integration
+
+The app does not upload coordinates to a project server. It sends the following GET request, which the third-party
+client must intercept locally on the device:
+
+```text
+https://gs-loc.apple.com/wloc-settings/save
+```
+
+| Action | Query parameters | Purpose |
+|---|---|---|
+| Query | `action=query` | Verify module connectivity and read the stored coordinate |
+| Save | `lon=<WGS-84 longitude>&lat=<WGS-84 latitude>&acc=<accuracy>` | Store the selected coordinate |
+| Clear | `action=clear` | Remove the stored test coordinate |
+
+The interception script must return HTTP 200 with JSON:
+
+```json
+{
+  "success": true,
+  "longitude": 113.0,
+  "latitude": 22.0,
+  "accuracy": 25
+}
+```
+
+Failures use:
+
+```json
+{
+  "success": false,
+  "error": "Error description"
+}
+```
+
+When no coordinate is stored, a query may return `{"success":false,"error":"无已保存的坐标"}`. The app interprets
+that response as “module connected, virtual location inactive.” A successful save response must echo the requested
+WGS-84 longitude and latitude.
+
+To integrate another third-party client:
+
+1. Add an HTTP request script for `gs-loc.apple.com/wloc-settings/save` that parses the parameters and returns the
+   specified JSON;
+2. Store coordinates, accuracy, and optional state in the client's persistent storage;
+3. Enable HTTPS decryption for `gs-loc.apple.com` and `gs-loc-cn.apple.com`;
+4. Intercept `gs-loc(-cn).apple.com/clls/wloc` responses, read the same persistent data, and modify the WLOC response;
+5. Publish an importable module and verify query, save, clear, and location restoration on a real device.
+
+The app validates only the configuration endpoint's HTTP status, JSON shape, and coordinate round trip. It does not
+manage the third-party client's certificate, MITM, VPN, or proxy state.
+
 Do not enable App Mode interception and Third-party Proxy Mode interception at the same time.
 
 ## Runtime Modes
@@ -163,14 +214,17 @@ Suitable for:
 
 Current client status:
 
-| Client | Status |
-|---|---|
-| Shadowrocket | Currently used for on-device testing |
-| Surge | Configuration provided, not fully verified |
-| Quantumult X | Configuration provided, not fully verified |
-| Loon | Configuration provided, not fully verified |
-| Stash | Configuration provided, not fully verified |
-| Egern | Uses the Surge module, not fully verified |
+| Client | Status | Community configuration |
+|---|---|---|
+| Shadowrocket | Currently used for on-device testing | Built-in App guide |
+| Surge | Configuration provided, not fully verified | Contributions wanted |
+| Quantumult X | Configuration provided, not fully verified | Contributions wanted |
+| Loon | Configuration provided, not fully verified | Contributions wanted |
+| Stash | Configuration provided, not fully verified | Contributions wanted |
+| Egern | Uses the Surge module, not fully verified | Contributions wanted |
+
+Community configurations are reviewed by client. Accepted submissions are linked in this table with attribution unless
+the contributor requests anonymous inclusion.
 
 Module snapshots and provenance:
 
@@ -327,21 +381,25 @@ Do not post real locations, authentication information, CA private keys, or comp
 
 Contributions are welcome for:
 
-- Bug reports;
-- Feature requests;
-- Compatibility results;
+- [Bug reports](https://github.com/xweiba/location-spoofer/issues/new?template=bug-report.yml);
+- [Feature requests](https://github.com/xweiba/location-spoofer/discussions/categories/%E5%8A%9F%E8%83%BD%E5%BB%BA%E8%AE%AE);
+- [Usage help and compatibility results](https://github.com/xweiba/location-spoofer/discussions/categories/%E4%BD%BF%E7%94%A8%E5%B8%AE%E5%8A%A9);
+- [Third-party client configurations and sanitized screenshots](https://github.com/xweiba/location-spoofer/discussions/categories/%E7%AC%AC%E4%B8%89%E6%96%B9%E9%85%8D%E7%BD%AE%E5%88%86%E4%BA%AB);
 - Performance improvements;
 - Documentation improvements;
 - Additional tests.
 
-When filing an issue, include:
+For bugs, generate a report from **Settings → Support → Report Bug** in the App whenever possible. The report includes:
 
 - iOS version;
-- Device model;
+- App version;
 - Runtime mode;
-- Reproduction steps;
+- Selected third-party client;
+- Whether the issue is reproducible;
+- Problem description;
 - Sanitized runtime logs;
-- Whether a third-party proxy client was used.
+
+Paste it into the **App-generated diagnostic report** field in the GitHub Issue Form.
 
 ## Documentation
 
@@ -385,10 +443,17 @@ guarantee for every app or release.
 The core location-response handling approach, Go implementation, and third-party modules are based on:
 
 - [Yu9191/wloc](https://github.com/Yu9191/wloc)
+- [ios-location-spoofer](https://github.com/mekos2772/ios-location-spoofer)
 
-Community link:
+Thanks to the following LINUX DO users for their contributions:
+
+- Bug fixes: [Chen Ze](https://linux.do/u/lixiaobaivv)
+- Ideas and suggestions: [Alex](https://linux.do/u/_alex), [ye4241](https://linux.do/u/ye4241)
+
+Links:
 
 - [LINUX DO](https://linux.do/)
+- [iOS-Location-Spoofer-Web](https://github.com/akudamatata/iOS-Location-Spoofer-Web)
 
 Thanks to the open-source contributors working on iOS location-service research, network proxies, and mobile testing
 tools.
