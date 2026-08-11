@@ -3,7 +3,10 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var setup = SetupCoordinator()
     @ObservedObject private var runtimeMode = ProxyRuntimeModeStore.shared
+    @ObservedObject private var quickActions = HomeQuickActionManager.shared
     @State private var phase: AppPhase = .splash
+    @State private var showingEnhancements = false
+    @State private var quickActionMessage = ""
 
     enum AppPhase { case splash, setup, map }
 
@@ -24,14 +27,34 @@ struct ContentView: View {
                 FirstSetupView(setup: setup, onComplete: finishInitialSetup)
             case .map:
                 NavigationView {
-                    MapHomeView(setup: setup)
+                    MapHomeView(setup: setup) {
+                        showingEnhancements = true
+                    }
                 }
                 .fullScreenCover(isPresented: $setup.needsSetup) {
                     FirstSetupView(setup: setup, onComplete: finishPresentedSetup)
                 }
             }
         }
+        .sheet(isPresented: $showingEnhancements) {
+            NavigationView {
+                ForkEnhancementsView()
+            }
+        }
+        .alert("快捷操作", isPresented: Binding(
+            get: { !quickActionMessage.isEmpty },
+            set: { if !$0 { quickActionMessage = "" } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(quickActionMessage)
+        }
         .task { await bootstrap() }
+        .onChange(of: quickActions.pendingAction) { _ in
+            Task { @MainActor in
+                await handlePendingQuickActionIfReady()
+            }
+        }
     }
 
     @MainActor
@@ -116,6 +139,8 @@ struct ContentView: View {
         setup.completeSetup()
         RuntimeLogger.info("APP", "Startup", "启动门禁全部完成，现在创建 MapHomeView")
         phase = .map
+        HomeQuickActionManager.shared.refresh()
+        await handlePendingQuickActionIfReady()
     }
 
     private func finishInitialSetup() {
@@ -129,5 +154,27 @@ struct ContentView: View {
     private func finishPresentedSetup() {
         runtimeMode.markInitialized(runtimeMode.mode)
         setup.completeSetup()
+    }
+
+    @MainActor
+    private func handlePendingQuickActionIfReady() async {
+        guard phase == .map, let action = quickActions.consume() else { return }
+        switch action {
+        case .enhancements:
+            showingEnhancements = true
+        case .favorite(let id):
+            do {
+                quickActionMessage = try await ShortcutLocationService.applyFavorite(id: id)
+            } catch {
+                HomeQuickActionManager.shared.refresh()
+                quickActionMessage = error.localizedDescription
+            }
+        case .clearVirtualLocation:
+            do {
+                quickActionMessage = try await ShortcutLocationService.clear()
+            } catch {
+                quickActionMessage = error.localizedDescription
+            }
+        }
     }
 }

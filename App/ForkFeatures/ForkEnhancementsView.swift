@@ -24,6 +24,20 @@ struct ForkEnhancementsView: View {
 
             WlocAccuracySettingsSection()
 
+            Section("自动化与更新") {
+                NavigationLink {
+                    SavedShortcutsView()
+                } label: {
+                    Label("我的快捷指令", systemImage: "command")
+                }
+
+                NavigationLink {
+                    ForkUpdateCheckView()
+                } label: {
+                    Label("App 更新", systemImage: "arrow.triangle.2.circlepath")
+                }
+            }
+
             Section("系统设置快捷入口") {
                 settingsButton("定位服务", systemImage: "location.circle", destination: .locationServices)
                 settingsButton("Wi-Fi", systemImage: "wifi", destination: .wifi)
@@ -36,7 +50,7 @@ struct ForkEnhancementsView: View {
             }
 
             Section("关于增强功能") {
-                Text("这里集中放置 fork 专属能力，避免把上游设置页继续拆散。WLOC 精度同时用于 APP 模式和第三方代理模式；定位生效判断为诊断性启发式结果，不代表 iOS 暴露了 GPS 来源控制。")
+                Text("这里集中放置 fork 专属能力。WLOC 精度同时用于 APP 模式和第三方代理模式；定位生效判断为诊断性启发式结果，不代表 iOS 暴露了 GPS 来源控制。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

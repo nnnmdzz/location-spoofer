@@ -58,6 +58,7 @@ struct MapHomeView: View {
     @StateObject private var realtime = RealtimeLocationManager.shared
     @StateObject private var mapState: MapLocationState
     @ObservedObject private var net = NetworkMonitor.shared
+    private let onShowEnhancements: () -> Void
 
     @State private var searchText = ""
     @State private var searchResults: [SearchLocationResult] = []
@@ -101,8 +102,9 @@ struct MapHomeView: View {
     @State private var lastSpoofDiagnosisSystem: CoordinateConverter.MapCoordinateSystem?
     @State private var hasLoggedSpoofDiagnosis = false
 
-    init(setup: SetupCoordinator) {
+    init(setup: SetupCoordinator, onShowEnhancements: @escaping () -> Void = {}) {
         self.setup = setup
+        self.onShowEnhancements = onShowEnhancements
         let favoriteStore = FavoriteLocationStore()
         _favorites = StateObject(wrappedValue: favoriteStore)
         let savedCoord = LastCoordinateStore.load()
@@ -317,6 +319,7 @@ struct MapHomeView: View {
         } message: { Text(manualHint) }
         .onAppear {
             startMapRuntimeOnce()
+            HomeQuickActionManager.shared.refresh()
             if runtimeMode.mode == .localWiFi {
                 registerWiFiChangeObserver()
             } else {
@@ -399,6 +402,7 @@ struct MapHomeView: View {
                     let finalName = name.isEmpty ? f.name : name
                     favorites.rename(f.id, to: finalName)
                     mapState.updateExplicitName(finalName, forFavoriteID: f.id)
+                    HomeQuickActionManager.shared.refresh()
                 }
                 editingFavorite = nil
             }
@@ -430,6 +434,17 @@ struct MapHomeView: View {
             .padding(.horizontal, 14).frame(height: 48)
             .background(.regularMaterial, in: Capsule())
             .shadow(color: .black.opacity(0.13), radius: 9, y: 4)
+
+            Button(action: onShowEnhancements) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 19, weight: .semibold))
+                    .frame(width: 48, height: 48)
+                    .background(.regularMaterial, in: Circle())
+                    .shadow(color: .black.opacity(0.13), radius: 9, y: 4)
+                    .contentShape(Circle())
+            }
+            .accessibilityLabel("增强功能")
+
             Menu {
                 Button { activeSheet = .logs } label: { Label("日志", systemImage: "list.bullet.rectangle") }
                 Button { activeSheet = .settings } label: { Label("设置", systemImage: "gearshape") }
@@ -571,7 +586,6 @@ struct MapHomeView: View {
         .shadow(color: .black.opacity(0.16), radius: 14, y: 6)
     }
 
-
     private var needsSwitchButton: Bool {
         guard spoofState == .active,
               let sLat = activeSpoofLat,
@@ -640,6 +654,7 @@ struct MapHomeView: View {
                     spoofState = .active
                     activeSpoofLat = response.latitude
                     activeSpoofLon = response.longitude
+                    recordRecentFavoriteIfStored(target)
                     RuntimeLogger.info("APP", "定位", "第三方代理坐标同步成功", details: [
                         "当前客户端": thirdPartyClient.selectedClient.name,
                         "坐标标准": "WGS-84",
@@ -692,6 +707,7 @@ struct MapHomeView: View {
                     activeSpoofLon = target.longitude
                     lastSpoofDiagnosisSystem = nil
                     hasLoggedSpoofDiagnosis = false
+                    recordRecentFavoriteIfStored(target)
                 }
                 RuntimeLogger.info("APP", "定位", "验证结果", details: [
                     "success": "true",
@@ -763,6 +779,19 @@ struct MapHomeView: View {
         presentSuccessfulOperationTip(.deactivation)
     }
 
+    private func recordRecentFavoriteIfStored(_ target: FavoriteLocation) {
+        let id = favorites.selectedFavoriteID
+            ?? favorites.favorites.first(where: {
+                $0.coordinatePair.matchesWGS84(
+                    latitude: target.latitude,
+                    longitude: target.longitude
+                )
+            })?.id
+        guard let id else { return }
+        RecentFavoriteStore.record(id)
+        HomeQuickActionManager.shared.refresh()
+    }
+
     private func presentSuccessfulOperationTip(_ kind: VirtualLocationTipKind) {
         let count = tipPreferences.recordSuccessfulOperation(kind)
         let operationName = kind == .activation ? "开启" : "关闭"
@@ -797,7 +826,6 @@ struct MapHomeView: View {
         githubDestination = SafariDestination(url: GitHubSubmission.communityContributionURL)
     }
 
-
     private func favoriteChip(_ f: FavoriteLocation) -> some View {
         HStack(spacing: 0) {
             Button { select(f) } label: {
@@ -812,7 +840,10 @@ struct MapHomeView: View {
                 Image(systemName: "pencil").font(.caption2).frame(width: 32, height: 36).contentShape(Rectangle())
             }.buttonStyle(.plain).foregroundStyle(.primary.opacity(0.55))
             Divider().frame(height: 22)
-            Button(role: .destructive) { favorites.delete(f) } label: {
+            Button(role: .destructive) {
+                favorites.delete(f)
+                HomeQuickActionManager.shared.refresh()
+            } label: {
                 Image(systemName: "trash").font(.caption.weight(.semibold)).frame(width: 36, height: 36).contentShape(Rectangle())
             }.buttonStyle(.plain).foregroundStyle(.red)
         }
@@ -826,7 +857,6 @@ struct MapHomeView: View {
             if let fallbackHint { manualHint = fallbackHint }
         }
     }
-
 
     private var currentSelectionFavorite: FavoriteLocation {
         FavoriteLocation(
@@ -1434,8 +1464,6 @@ struct MapHomeView: View {
                 guard !Task.isCancelled, mapState.selection.revision == revision else { return }
 
                 do {
-                    // 并⾏获取：CLGeocoder（地址结构化） + MKLocalSearch（地图显⽰名称）
-                    // MKLocalSearch 在无结果时抛错，不可与 CLGeocoder 共用 try await 导致互相影响
                     async let clPlacemarks = CLGeocoder().reverseGeocodeLocation(location)
                     let mkRequest = MKLocalSearch.Request()
                     mkRequest.region = MKCoordinateRegion(center: mapCoordinate, latitudinalMeters: 400, longitudinalMeters: 400)
@@ -1451,7 +1479,6 @@ struct MapHomeView: View {
                     }
                     let mapItemName = mkResponse?.mapItems.first?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let mapItemPOI = mkResponse?.mapItems.first?.placemark.areasOfInterest?.first
-                    // 优先使⽤ MKLocalSearch 结果（与地图显⽰一致），CLGeocoder 作为 fallback
                     let poi = { () -> String? in
                         if let v = mapItemPOI?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty { return v }
                         if let v = mapItemName?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty { return v }

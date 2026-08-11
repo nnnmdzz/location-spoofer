@@ -42,6 +42,8 @@ enum ShortcutLocationService {
         }
 
         store.select(favorite.id)
+        RecentFavoriteStore.record(favorite.id)
+        HomeQuickActionManager.shared.refresh()
         RuntimeLogger.info("APP", "Shortcuts", "快捷指令已设置收藏位置", details: [
             "收藏": favorite.name,
             "模式": runtime.mode.displayName,
