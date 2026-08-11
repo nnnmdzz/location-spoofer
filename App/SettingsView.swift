@@ -1,22 +1,5 @@
 import SwiftUI
 
-private enum UpdateCheckResult: Identifiable {
-    case current(currentVersion: String, latestVersion: String)
-    case available(AppUpdatePrompt)
-    case failed
-
-    var id: String {
-        switch self {
-        case .current(let currentVersion, let latestVersion):
-            return "\(currentVersion)-\(latestVersion)"
-        case .available(let prompt):
-            return "available-\(prompt.id)"
-        case .failed:
-            return "failed"
-        }
-    }
-}
-
 struct SettingsView: View {
     @ObservedObject var setup: SetupCoordinator
     @ObservedObject var actions: LocationActionCoordinator
@@ -35,8 +18,6 @@ struct SettingsView: View {
     @State private var copiedMITMHostnames = false
     @State private var showCertificateResetConfirmation = false
     @State private var githubDestination: SafariDestination?
-    @State private var isCheckingForUpdates = false
-    @State private var updateCheckResult: UpdateCheckResult?
     @State private var showingForkUpdateCheck = false
 
     var body: some View {
@@ -118,6 +99,13 @@ struct SettingsView: View {
                         Label("进入引导页", systemImage: "arrow.clockwise.circle")
                     }
                 }
+
+                NavigationLink {
+                    ForkEnhancementsView()
+                } label: {
+                    Label("增强功能", systemImage: "sparkles")
+                }
+
                 Button { showingForkUpdateCheck = true } label: {
                     Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
                 }
@@ -211,9 +199,6 @@ struct SettingsView: View {
         } message: {
             Text(proxyOperationError)
         }
-        .alert(item: $updateCheckResult) { result in
-            updateCheckAlert(for: result)
-        }
         .confirmationDialog(
             "重置证书？",
             isPresented: $showCertificateResetConfirmation,
@@ -237,7 +222,13 @@ struct SettingsView: View {
     }
 
     private func valueRow(_ title: String, value: String) -> some View {
-        HStack { Text(title); Spacer(); Text(value).font(.footnote.monospaced()).foregroundStyle(.secondary) }
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var versionText: String {
@@ -246,61 +237,6 @@ struct SettingsView: View {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         return "\(v) (\(b))"
-    }
-
-    private func checkForUpdates() {
-        guard !isCheckingForUpdates else { return }
-        isCheckingForUpdates = true
-        Task { @MainActor in
-            defer { isCheckingForUpdates = false }
-            guard let configuration = await AppRemoteConfigurationService.fetch() else {
-                updateCheckResult = .failed
-                return
-            }
-            AppRemoteConfigurationStore.shared.apply(configuration)
-            let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-                ?? AppRemoteConfiguration.fallback.latestVersion
-            guard let pendingPrompt = configuration.updatePrompt(currentVersion: currentVersion) else {
-                updateCheckResult = .current(currentVersion: currentVersion, latestVersion: configuration.latestVersion)
-                return
-            }
-            let releaseNotes = await AppRemoteConfigurationService.fetchReleaseNotes(version: pendingPrompt.latestVersion)
-            let prompt = configuration.updatePrompt(currentVersion: currentVersion, releaseNotes: releaseNotes) ?? pendingPrompt
-            updateCheckResult = .available(prompt)
-        }
-    }
-
-    private func updateCheckAlert(for result: UpdateCheckResult) -> Alert {
-        switch result {
-        case .current(let currentVersion, let latestVersion):
-            return Alert(
-                title: Text("已是最新版本"),
-                message: Text("当前版本 \(currentVersion)，远程最新版本 \(latestVersion)。"),
-                dismissButton: .default(Text("知道了"))
-            )
-        case .available(let prompt):
-            let details = prompt.releaseNotes ?? "更新说明暂时无法加载，请前往最新 Release 页面查看。"
-            let message: String
-            if prompt.requirement == .required {
-                message = "当前版本 \(prompt.currentVersion) 已停止支持，请更新到 \(prompt.latestVersion) 后继续使用。\n\n\(details)"
-            } else {
-                message = "当前版本 \(prompt.currentVersion)，最新版本 \(prompt.latestVersion)。\n\n\(details)"
-            }
-            return Alert(
-                title: Text(prompt.requirement == .required ? "需要更新" : "发现新版本"),
-                message: Text(message),
-                primaryButton: .default(Text("前往更新")) {
-                    UIApplication.shared.open(AppRemoteConfigurationService.releasesURL)
-                },
-                secondaryButton: .cancel(Text("稍后"))
-            )
-        case .failed:
-            return Alert(
-                title: Text("检查更新失败"),
-                message: Text("无法获取远程版本信息，请检查网络后重试。"),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
     }
 
     private var proxyBinding: Binding<Bool> {
@@ -418,7 +354,10 @@ struct SettingsView: View {
                 UIPasteboard.general.string = thirdPartyClient.selectedClient.subscriptionURL.absoluteString
                 copiedClient = thirdPartyClient.selectedClient
             } label: {
-                Label(copiedClient == thirdPartyClient.selectedClient ? "已复制模块订阅地址" : "复制模块订阅地址", systemImage: "doc.on.doc")
+                Label(
+                    copiedClient == thirdPartyClient.selectedClient ? "已复制模块订阅地址" : "复制模块订阅地址",
+                    systemImage: "doc.on.doc"
+                )
             }
 
             Button {
@@ -441,14 +380,17 @@ struct SettingsView: View {
 
             if thirdPartyClient.selectedClient == .egern {
                 Text("Egern 直接使用 Surge 的 .sgmodule 模块。")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             } else if thirdPartyClient.selectedClient == .stash {
                 Text("Stash 直接订阅 .stoverride，不要通过 Script Hub 转换。")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Text("复制模块订阅地址后，在对应代理客户端中添加模块/重写订阅，并为 gs-loc.apple.com 和 gs-loc-cn.apple.com 启用 MITM。第三方客户端保存坐标后，即使关闭本 App，坐标仍由代理客户端持久化并继续生效。")
-                .font(.footnote).foregroundStyle(.secondary)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -517,7 +459,12 @@ struct SettingsView: View {
                 do {
                     try await thirdPartyProxy.clear()
                 } catch {
-                    RuntimeLogger.warning("APP", "Mode", "切换 APP 模式前无法清除第三方坐标", details: ["错误": error.localizedDescription])
+                    RuntimeLogger.warning(
+                        "APP",
+                        "Mode",
+                        "切换 APP 模式前无法清除第三方坐标",
+                        details: ["错误": error.localizedDescription]
+                    )
                 }
                 runtimeMode.setMode(.localWiFi)
                 await setup.prepareLocalServices()
