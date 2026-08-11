@@ -1,0 +1,70 @@
+name: Validate Development
+
+on:
+  push:
+    branches:
+      - 'sync/**'
+      - 'feature/**'
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  validate:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Run shell contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_file in Tests/*_test.sh; do
+            echo "Running ${test_file}"
+            bash "${test_file}"
+          done
+
+      - name: Run Core Go tests
+        working-directory: Core
+        run: go test ./...
+
+      - name: Run WLOC script tests
+        working-directory: ThirdParty/WlocScripts
+        run: |
+          npm ci
+          npm test
+
+      - name: Resolve available iOS Simulator
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(device["udid"] for devices in data["devices"].values() for device in devices if device.get("isAvailable") and device.get("name", "").startswith("iPhone")))')"
+          test -n "$UDID"
+          echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build Device Release and run iOS unit tests
+        env:
+          SIMULATOR_DESTINATION: ${{ steps.simulator.outputs.destination }}
+        run: ./build.sh --test
