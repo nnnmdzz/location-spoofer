@@ -24,7 +24,7 @@ grep -Fq 'ForkUpdateCheckView()' "$settings" || fail "Settings manual update but
 grep -Fq 'textSelection(.enabled)' "$view" || fail "IPA URL must be selectable"
 grep -Fq 'UIPasteboard.general.string = result.ipaURL.absoluteString' "$view" || fail "IPA URL must be copyable"
 
-grep -Fq 'FORK_RELEASE_VERSION: "1.0.5-0005"' project.yml || fail "missing fork release build setting"
+grep -Fq 'FORK_RELEASE_VERSION: "1.0.5-0006"' project.yml || fail "missing fork release build setting"
 grep -Fq '<key>ForkReleaseVersion</key>' Resources/Info.plist || fail "missing ForkReleaseVersion plist key"
 
 grep -Fq 'https://github.com/nnnmdzz/location-spoofer' "$submission" || fail "submission URLs must use fork repo"

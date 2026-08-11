@@ -73,6 +73,12 @@ Location Spoofer 是一个面向 iOS 定位服务行为研究和开发测试的�
     - 坐标标准变化记录；
     - 脱敏问题报告生成。
 
+- **可选私人 IPA 签名客户端**
+    - 用户自行填写 HTTPS Worker 地址和 Signing Request Token，源码与发行包不包含默认服务或凭据；
+    - 可提交 IPA 下载链接或选择不超过 100 MB 的本地 IPA，查看任务历史并安装或导出结果；
+    - 默认 Split、可选 Standard，并支持 Bundle ID、Profile ID、Keychain 访问组和兼容性策略；
+    - Worker 配置只保存在设备 Keychain；本功能不改变公开 Release 始终提供 unsigned IPA 的规则。
+
 ## 工作原理
 
 ### APP 模式
@@ -351,6 +357,7 @@ dist/PaopaoLocationSpoofer-unsigned.ipa
 - APP 模式会访问本机代理和环境验证地址；
 - 第三方代理模式可能访问上游模块地址和 WLOC 配置接口；
 - App 生成的 CA 私钥保存在设备 Keychain 中；
+- 用户自行配置的私人签名 Worker 地址和 Token 保存在设备 Keychain 中，不会写入源码、Info.plist 或 UserDefaults；
 - 第三方客户端模块、MITM 和证书链路由用户选择的客户端负责。
 
 请不要把真实位置、认证信息、证书私钥或完整敏感日志提交到公开 Issue。
@@ -363,6 +370,7 @@ dist/PaopaoLocationSpoofer-unsigned.ipa
 - 第三方代理客户端的兼容性和规则行为需要分别验证；
 - 不保证所有应用都使用同一种定位 API；
 - 不保证所有应用或服务都接受测试坐标；
+- 私人 IPA 签名仅支持调用者有权重签的 iOS/iPadOS IPA，不提供 FairPlay 解密，安装能力仍受 provisioning profile 和设备列表限制；
 - 不保证在所有网络环境、设备型号和 iOS 版本上表现一致。
 
 ## 贡献

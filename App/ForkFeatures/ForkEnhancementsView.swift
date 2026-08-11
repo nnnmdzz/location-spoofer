@@ -36,6 +36,12 @@ struct ForkEnhancementsView: View {
                 } label: {
                     Label("App 更新", systemImage: "arrow.triangle.2.circlepath")
                 }
+
+                NavigationLink {
+                    PrivateSigningView()
+                } label: {
+                    Label("私人 IPA 签名", systemImage: "signature")
+                }
             }
 
             Section("系统设置快捷入口") {

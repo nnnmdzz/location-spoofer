@@ -75,6 +75,12 @@ collection services.
   - Map coordinate-system change records;
   - Sanitized issue-report generation.
 
+- **Optional private IPA signing client**
+  - The user supplies an HTTPS Worker URL and Signing Request Token; no default service or credential is compiled in;
+  - Accepts an IPA download URL or a local IPA up to 100 MB, shows job history, and installs or exports results;
+  - Defaults to Split with explicit Standard, Bundle ID, Profile ID, Keychain-group, and compatibility options;
+  - Worker configuration stays in the device Keychain, while public Releases remain unsigned.
+
 ## How It Works
 
 ### App Mode

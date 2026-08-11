@@ -7,12 +7,14 @@ quick="App/ForkFeatures/HomeQuickActions.swift"
 saved_service="Shared/ForkFeatures/SystemShortcutService.swift"
 saved_view="App/ForkFeatures/SavedShortcutsView.swift"
 private_service="Shared/ForkFeatures/PrivateUpdateService.swift"
+private_signing_service="Shared/ForkFeatures/PrivateSigningService.swift"
+private_signing_view="App/ForkFeatures/PrivateSigningView.swift"
 update_view="App/ForkFeatures/ForkUpdateCheckView.swift"
 plist="Resources/Info.plist"
 content="App/ContentView.swift"
 home="App/MapHomeView.swift"
 
-for file in "$quick" "$saved_service" "$saved_view" "$private_service"; do
+for file in "$quick" "$saved_service" "$saved_view" "$private_service" "$private_signing_service" "$private_signing_view"; do
   [[ -f "$file" ]] || fail "missing automation/private update file: $file"
 done
 
@@ -37,9 +39,14 @@ grep -Fq '<string>paopaolocation-spoofer</string>' "$plist" || fail "callback UR
 grep -Fq '.onOpenURL' App/PaopaoLocationSpooferApp.swift || fail "app must route callback URLs"
 
 grep -Fq 'kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly' "$private_service" || fail "private update configuration must use ThisDeviceOnly Keychain accessibility"
-grep -Fq 'forHTTPHeaderField: "Authorization"' "$private_service" || fail "Personal Update Token must travel in authorization header"
-grep -Fq 'configuration.personalToken' "$private_service" || fail "Personal Update Token must be read from Keychain configuration"
-grep -Fq 'appendingPathComponent("location-spoofer"' "$private_service" || fail "private worker API must use location-spoofer route"
+grep -Fq 'forHTTPHeaderField: "Authorization"' "$private_signing_service" || fail "Signing Request Token must travel in authorization header"
+grep -Fq 'configuration.personalToken' "$private_signing_service" || fail "Signing Request Token must be read from Keychain configuration"
+grep -Fq 'path: "v2/sign/jobs"' "$private_signing_service" || fail "private worker API must use generic v2 Signing Jobs"
+grep -Fq 'maximumSourceBytes = 100 * 1024 * 1024' "$private_signing_service" || fail "local IPA upload must enforce the 100 MB limit"
+grep -Fq 'session.partSize' "$private_signing_service" || fail "local IPA upload must use Worker-selected multipart sizing"
+grep -Fq 'PrivateUpdateConfigurationStore.signingAccessGroups' "$private_service" || fail "self-update must request stable and legacy Keychain groups"
+grep -Fq 'PrivateSigningView()' App/ForkFeatures/ForkEnhancementsView.swift || fail "enhancements UI must expose arbitrary private IPA signing"
+grep -Fq 'Task.sleep(nanoseconds: 5_000_000_000)' "$private_signing_view" || fail "active jobs must poll every five seconds in the foreground"
 grep -Fq 'manifestURL.scheme?.lowercased() == "https"' "$private_service" || fail "private manifest must require HTTPS"
 grep -Fq 'components.scheme = "itms-services"' "$private_service" || fail "private update must hand off to iOS OTA installer"
 grep -Fq 'PrivateUpdateConfigurationStore' "$update_view" || fail "update UI must expose private configuration"

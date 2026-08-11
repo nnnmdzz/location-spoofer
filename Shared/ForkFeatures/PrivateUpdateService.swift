@@ -17,7 +17,7 @@ enum PrivateUpdateConfigurationError: LocalizedError {
         case .invalidWorkerURL:
             return "Worker 地址必须是有效的 HTTPS 地址。"
         case .emptyToken:
-            return "Personal Update Token 不能为空。"
+            return "Signing Request Token 不能为空。"
         case .keychain(let status):
             return "无法访问私人更新钥匙串（\(status)）。"
         case .invalidStoredData:
@@ -29,8 +29,30 @@ enum PrivateUpdateConfigurationError: LocalizedError {
 enum PrivateUpdateConfigurationStore {
     private static let service = "com.paopaolabs.location-spoofer.private-update"
     private static let account = "worker-configuration"
+    static let stableAccessGroup = "4JJ849C5Q2.com.paopaolabs.location-spoofer"
+    static let legacyAccessGroup = "4JJ849C5Q2.app.cauliflower3903.lemon2546"
+    static let signingAccessGroups = [stableAccessGroup, legacyAccessGroup]
 
     static func load() throws -> PrivateUpdateConfiguration? {
+        var firstAccessError: OSStatus?
+        for accessGroup in [stableAccessGroup, legacyAccessGroup, nil] as [String?] {
+            do {
+                if let configuration = try load(accessGroup: accessGroup) {
+                    if accessGroup != stableAccessGroup {
+                        try saveStable(configuration: configuration)
+                    }
+                    return configuration
+                }
+            } catch PrivateUpdateConfigurationError.keychain(let status) where status == errSecMissingEntitlement {
+                firstAccessError = firstAccessError ?? status
+                continue
+            }
+        }
+        if let firstAccessError { throw PrivateUpdateConfigurationError.keychain(firstAccessError) }
+        return nil
+    }
+
+    private static func load(accessGroup: String?) throws -> PrivateUpdateConfiguration? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -38,7 +60,7 @@ enum PrivateUpdateConfigurationStore {
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
+        ].merging(accessGroup.map { [kSecAttrAccessGroup as String: $0] } ?? [:]) { current, _ in current }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
@@ -56,14 +78,39 @@ enum PrivateUpdateConfigurationStore {
         let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { throw PrivateUpdateConfigurationError.emptyToken }
         let configuration = PrivateUpdateConfiguration(workerURL: workerURL, personalToken: token)
+        try save(configuration: configuration)
+    }
+
+    private static func save(configuration: PrivateUpdateConfiguration) throws {
+        try saveStable(configuration: configuration)
+    }
+
+    private static func saveStable(configuration: PrivateUpdateConfiguration) throws {
         let data = try JSONEncoder().encode(configuration)
-        try clear()
+        let matchQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecAttrAccessGroup as String: stableAccessGroup,
+        ]
+        let updateStatus = SecItemUpdate(
+            matchQuery as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess {
+            return
+        }
+        guard updateStatus == errSecItemNotFound else {
+            throw PrivateUpdateConfigurationError.keychain(updateStatus)
+        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecAttrAccessGroup as String: stableAccessGroup,
             kSecValueData as String: data,
         ]
         let status = SecItemAdd(query as CFDictionary, nil)
@@ -73,16 +120,24 @@ enum PrivateUpdateConfigurationStore {
     }
 
     static func clear() throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw PrivateUpdateConfigurationError.keychain(status)
+        try clear(accessGroups: [stableAccessGroup, legacyAccessGroup, nil])
+    }
+
+    private static func clear(accessGroups: [String?]) throws {
+        var firstFailure: OSStatus?
+        for accessGroup in accessGroups {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            ].merging(accessGroup.map { [kSecAttrAccessGroup as String: $0] } ?? [:]) { current, _ in current }
+            let status = SecItemDelete(query as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound && status != errSecMissingEntitlement {
+                firstFailure = firstFailure ?? status
+            }
         }
+        if let firstFailure { throw PrivateUpdateConfigurationError.keychain(firstFailure) }
     }
 
     private static func validatedWorkerURL(_ rawValue: String) throws -> URL {
@@ -119,30 +174,18 @@ struct PrivateSignedUpdateStatus: Equatable {
 }
 
 enum PrivateSignedUpdateServiceError: LocalizedError {
-    case invalidRequestURL
     case missingBundleIdentifier
-    case invalidResponse
     case unauthorized
-    case unavailable(Int)
-    case wrongVersion(String)
     case wrongBundleIdentifier(String)
     case invalidManifestURL
     case network(String)
 
     var errorDescription: String? {
         switch self {
-        case .invalidRequestURL:
-            return "私人更新 Worker 地址无法组成有效请求。"
         case .missingBundleIdentifier:
             return "当前 App 没有可用的 Bundle ID，无法请求私人签名更新。"
-        case .invalidResponse:
-            return "私人更新 Worker 返回了无法识别的数据。"
         case .unauthorized:
-            return "私人更新鉴权失败，请检查 Worker 地址和 Personal Update Token。"
-        case .unavailable(let status):
-            return "私人更新服务暂不可用（HTTP \(status)）。"
-        case .wrongVersion(let tag):
-            return "私人更新返回了不匹配的版本：\(tag)。"
+            return "私人更新鉴权失败，请检查 Worker 地址和 Signing Request Token。"
         case .wrongBundleIdentifier(let bundleIdentifier):
             return "私人更新返回了不匹配的 Bundle ID：\(bundleIdentifier)。"
         case .invalidManifestURL:
@@ -153,131 +196,58 @@ enum PrivateSignedUpdateServiceError: LocalizedError {
     }
 }
 
-private struct PrivateSignedUpdateResponse: Decodable {
-    let available: Bool
-    let tag: String?
-    let bundleIdentifier: String?
-    let state: String?
-    let manifestURL: URL?
-    let expiresAt: String?
-    let ipaSHA256: String?
-    let errorCode: String?
-    let message: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case available, tag, state, message
-        case bundleIdentifier = "bundle_id"
-        case manifestURL = "manifest_url"
-        case expiresAt = "expires_at"
-        case ipaSHA256 = "ipa_sha256"
-        case errorCode = "error_code"
-    }
-}
-
 enum PrivateSignedUpdateService {
-    static func requestURL(
-        configuration: PrivateUpdateConfiguration,
-        requestedVersion: ForkReleaseVersion,
-        bundleIdentifier: String
-    ) throws -> URL {
-        let normalizedBundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedBundleIdentifier.isEmpty else {
-            throw PrivateSignedUpdateServiceError.missingBundleIdentifier
-        }
-        let endpoint = configuration.workerURL
-            .appendingPathComponent("v1", isDirectory: true)
-            .appendingPathComponent("location-spoofer", isDirectory: true)
-            .appendingPathComponent("update", isDirectory: false)
-        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
-            throw PrivateSignedUpdateServiceError.invalidRequestURL
-        }
-        components.queryItems = [
-            URLQueryItem(name: "tag", value: requestedVersion.tagName),
-            URLQueryItem(name: "bundle_id", value: normalizedBundleIdentifier),
-        ]
-        guard let url = components.url else {
-            throw PrivateSignedUpdateServiceError.invalidRequestURL
-        }
-        return url
-    }
-
     static func fetch(
         configuration: PrivateUpdateConfiguration,
-        requestedVersion: ForkReleaseVersion
+        release: ForkReleaseCheckResult
     ) async throws -> PrivateSignedUpdateStatus {
         guard let currentBundleIdentifier = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
               !currentBundleIdentifier.isEmpty else {
             throw PrivateSignedUpdateServiceError.missingBundleIdentifier
         }
-        let url = try requestURL(
-            configuration: configuration,
-            requestedVersion: requestedVersion,
-            bundleIdentifier: currentBundleIdentifier
+        let expectedSHA256: String? = {
+            guard let digest = release.digest?.lowercased() else { return nil }
+            let value = digest.hasPrefix("sha256:") ? String(digest.dropFirst(7)) : digest
+            return value.count == 64 && value.allSatisfy { $0.isHexDigit } ? value : nil
+        }()
+        let client = PrivateSigningClient(configuration: configuration)
+        let options = PrivateSigningOptions(
+            signingMode: .split,
+            targetBundleIdentifier: currentBundleIdentifier,
+            profileID: "personal-main",
+            keychainAccessGroups: PrivateUpdateConfigurationStore.signingAccessGroups,
+            embeddedBundlePolicy: .stripUnsupported,
+            entitlementPolicy: .stripUnsupported,
+            expectedSHA256: expectedSHA256
         )
-
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        sessionConfiguration.timeoutIntervalForRequest = 8
-        sessionConfiguration.timeoutIntervalForResource = 12
-        let session = URLSession(configuration: sessionConfiguration)
-        defer { session.finishTasksAndInvalidate() }
-
-        var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(configuration.personalToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("Location-Spoofer/\(ForkReleaseService.currentVersionString)", forHTTPHeaderField: "User-Agent")
-
-        let data: Data
-        let response: URLResponse
+        let created: PrivateSigningJob
         do {
-            (data, response) = try await session.data(for: request)
+            created = try await client.createURLJob(sourceURL: release.ipaURL, options: options)
+        } catch PrivateSigningClientError.unauthorized {
+            throw PrivateSignedUpdateServiceError.unauthorized
         } catch {
             throw PrivateSignedUpdateServiceError.network(error.localizedDescription)
         }
-        guard let http = response as? HTTPURLResponse else {
-            throw PrivateSignedUpdateServiceError.invalidResponse
+        let job = (try? await client.job(id: created.jobID)) ?? created
+        var links: PrivateSigningLinks?
+        if job.status == .completed {
+            links = try await client.links(jobID: job.jobID)
         }
-        if http.statusCode == 401 || http.statusCode == 403 {
-            throw PrivateSignedUpdateServiceError.unauthorized
-        }
-        guard http.statusCode == 200 else {
-            throw PrivateSignedUpdateServiceError.unavailable(http.statusCode)
-        }
-        guard let payload = try? JSONDecoder().decode(PrivateSignedUpdateResponse.self, from: data) else {
-            throw PrivateSignedUpdateServiceError.invalidResponse
-        }
-
-        if let tag = payload.tag, tag != requestedVersion.tagName {
-            throw PrivateSignedUpdateServiceError.wrongVersion(tag)
-        }
-        if let returnedBundleIdentifier = payload.bundleIdentifier,
+        if let returnedBundleIdentifier = job.actualBundleIdentifier,
            returnedBundleIdentifier != currentBundleIdentifier {
             throw PrivateSignedUpdateServiceError.wrongBundleIdentifier(returnedBundleIdentifier)
         }
 
-        if payload.available {
-            guard payload.tag == requestedVersion.tagName else {
-                throw PrivateSignedUpdateServiceError.wrongVersion(payload.tag ?? "未知")
-            }
-            guard payload.bundleIdentifier == currentBundleIdentifier else {
-                throw PrivateSignedUpdateServiceError.wrongBundleIdentifier(payload.bundleIdentifier ?? "未知")
-            }
-            guard let manifestURL = payload.manifestURL,
-                  manifestURL.scheme?.lowercased() == "https" else {
-                throw PrivateSignedUpdateServiceError.invalidManifestURL
-            }
-        }
-
         return PrivateSignedUpdateStatus(
-            requestedVersion: requestedVersion,
-            bundleIdentifier: payload.bundleIdentifier ?? currentBundleIdentifier,
-            available: payload.available,
-            state: payload.state,
-            manifestURL: payload.manifestURL,
-            expiresAt: payload.expiresAt,
-            ipaSHA256: payload.ipaSHA256,
-            errorCode: payload.errorCode,
-            message: payload.message
+            requestedVersion: release.latestVersion,
+            bundleIdentifier: job.actualBundleIdentifier ?? currentBundleIdentifier,
+            available: links != nil,
+            state: job.status.rawValue,
+            manifestURL: links?.manifestURL,
+            expiresAt: links?.expiresAt,
+            ipaSHA256: job.finalSHA256,
+            errorCode: job.errorCode,
+            message: job.message
         )
     }
 

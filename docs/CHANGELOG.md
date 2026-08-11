@@ -4,6 +4,8 @@
 
 ## 已发布
 
+- [v1.0.5-0006](releases/v1.0.5-0006.md) — 待发布：通用私人 IPA 签名客户端与 Keychain 迁移
+
 - [v1.0.5](https://github.com/xweiba/location-spoofer/releases/tag/v1.0.5) — 2026-08-10
 - [v1.0.4](https://github.com/xweiba/location-spoofer/releases/tag/v1.0.4) — 2026-08-09
 - [v1.0.3](https://github.com/xweiba/location-spoofer/releases/tag/v1.0.3) — 2026-08-09

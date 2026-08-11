@@ -104,7 +104,7 @@ struct ForkUpdateCheckView: View {
     private var privateUpdateSection: some View {
         Section("私人签名更新") {
             if privateConfiguration == nil {
-                Text("未配置私人 OTA。Worker 地址和 Personal Update Token 都只保存在本机 Keychain，不写入源码、Info.plist 或 UserDefaults。")
+                Text("未配置私人 OTA。Worker 地址和 Signing Request Token 都只保存在本机 Keychain，不写入源码、Info.plist 或 UserDefaults。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 Button {
@@ -236,11 +236,11 @@ struct ForkUpdateCheckView: View {
             privateErrorMessage = nil
             return
         }
-        await checkPrivate(requestedVersion: result.latestVersion)
+        await checkPrivate(release: result)
     }
 
     @MainActor
-    private func checkPrivate(requestedVersion: ForkReleaseVersion) async {
+    private func checkPrivate(release: ForkReleaseCheckResult) async {
         guard !isCheckingPrivate, let configuration = privateConfiguration else { return }
         isCheckingPrivate = true
         privateStatus = nil
@@ -249,7 +249,7 @@ struct ForkUpdateCheckView: View {
         do {
             privateStatus = try await PrivateSignedUpdateService.fetch(
                 configuration: configuration,
-                requestedVersion: requestedVersion
+                release: release
             )
         } catch {
             privateErrorMessage = error.localizedDescription
@@ -292,7 +292,7 @@ struct ForkUpdateCheckView: View {
     }
 }
 
-private struct PrivateUpdateConfigurationEditorView: View {
+struct PrivateUpdateConfigurationEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var workerURLText: String
     @State private var tokenText: String
@@ -315,7 +315,7 @@ private struct PrivateUpdateConfigurationEditorView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
-                SecureField("Personal Update Token", text: $tokenText)
+                SecureField("Signing Request Token", text: $tokenText)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
