@@ -1,0 +1,45 @@
+name: Bug 报告
+description: 报告 App 功能异常和可复现问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请优先在 App 的“设置 → 支持 → 报告 Bug”中生成诊断报告，再粘贴到下方字段。
+        提交前请移除真实位置、账号、订阅、密码、证书私钥和其他敏感信息。
+  - type: textarea
+    id: app-report
+    attributes:
+      label: App 生成的诊断报告
+      description: 粘贴 App 自动复制的完整报告；如果无法进入 App，请按占位格式手动填写。
+      placeholder: |
+        ### 环境信息
+        App 版本:
+        系统版本:
+        运行模式:
+        第三方客户端:
+        可复现环境:
+
+        ### 问题描述
+
+        ### 诊断日志
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图或录屏
+      description: 可选。请先遮挡账号、通知、真实位置和其他敏感信息。
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 提交确认
+      options:
+        - label: 我已搜索现有 Issues，确认没有相同问题
+          required: true
+        - label: 我已移除真实位置、认证信息、订阅地址、证书私钥和其他敏感信息
+          required: true

@@ -38,10 +38,6 @@ enum LocationEffectEvaluator {
             return .effective(distanceMeters: distance, accuracyMeters: accuracy)
         }
 
-        // When switching between two virtual targets, the old WLOC result may
-        // itself report a small horizontalAccuracy. If the new sample still
-        // hugs the previous virtual target, treat it as stale/cache behavior
-        // before considering GNSS dominance.
         if let previousTarget {
             let oldTargetLocation = CLLocation(
                 latitude: previousTarget.latitude,
@@ -62,10 +58,6 @@ enum LocationEffectEvaluator {
             return sample.distance(from: previousSample) <= radius
         }()
 
-        // WLOC only changes network location. On a first activation, a fresh,
-        // high-precision sample far from the target suggests that GNSS or
-        // another precise source may still be winning Core Location fusion.
-        // This remains a heuristic and must never be presented as certainty.
         if clearlyFar && (highPrecision || (nearPreviousPhysicalSample && accuracy <= 80)) {
             return .gpsLikelyDominant(distanceMeters: distance, accuracyMeters: accuracy)
         }
@@ -113,8 +105,6 @@ final class LocationEffectMonitor: ObservableObject {
         startAutomaticVerification(reason: "恢复已持久化目标")
     }
 
-    /// User-triggered checks are intentionally one-shot. Automatic activation
-    /// checks already provide the three-sample, 10-second cadence.
     func retry(reason: String = "用户重新检测") {
         guard target != nil else { return }
         startVerification(
@@ -218,8 +208,6 @@ final class LocationEffectMonitor: ObservableObject {
                     "样本时间": ISO8601DateFormatter().string(from: sample.timestamp)
                 ])
 
-                // Success is definitive enough to stop early. All failure or
-                // heuristic states continue through the configured samples.
                 if case .effective = lastStatus {
                     return
                 }

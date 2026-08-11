@@ -2,6 +2,9 @@
 .superpowers/
 build/
 dist/
+!ThirdParty/WlocScripts/dist/
+!ThirdParty/WlocScripts/dist/**
+node_modules/
 DerivedData/
 xcuserdata/
 *.xcuserstate
@@ -23,5 +26,9 @@ Wloc.xcodeproj/
 .github/*
 !.github/workflows/
 !.github/workflows/**
+!.github/DISCUSSION_TEMPLATE/
+!.github/DISCUSSION_TEMPLATE/**
+!.github/ISSUE_TEMPLATE/
+!.github/ISSUE_TEMPLATE/**
 Core/core
 docs/superpowers/

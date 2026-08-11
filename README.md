@@ -12,7 +12,7 @@
 [![iOS 15+](https://img.shields.io/badge/iOS-15%2B-111111?logo=apple)](project.yml)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-F05138)](project.yml)
 [![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go)](Core/go.mod)
-[![Version](https://img.shields.io/badge/version-v1.0.2-2563EB)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.0.5-2563EB)](docs/CHANGELOG.md)
 
 [功能概览](#功能概览) ·
 [工作原理](#工作原理) ·
@@ -130,6 +130,53 @@ WLOC 配置接口
 - 是否支持 Wi-Fi、4G 或 5G 取决于客户端；
 - App 关闭后，第三方客户端中的配置可能继续生效。
 
+#### 配置接口与客户端适配
+
+App 不会把坐标上传到项目服务器。它会发起以下 GET 请求，第三方客户端必须在设备本地拦截：
+
+```text
+https://gs-loc.apple.com/wloc-settings/save
+```
+
+| 操作 | 查询参数 | 用途 |
+|---|---|---|
+| 查询 | `action=query` | 检查模块是否连接，并读取当前保存的坐标 |
+| 保存 | `lon=<WGS-84 经度>&lat=<WGS-84 纬度>&acc=<精度>` | 保存当前选点 |
+| 清除 | `action=clear` | 删除已保存的测试坐标 |
+
+拦截脚本必须返回 HTTP 200 和 JSON：
+
+```json
+{
+  "success": true,
+  "longitude": 113.0,
+  "latitude": 22.0,
+  "accuracy": 25
+}
+```
+
+失败时返回：
+
+```json
+{
+  "success": false,
+  "error": "错误说明"
+}
+```
+
+查询时没有已保存坐标，可以返回 `{"success":false,"error":"无已保存的坐标"}`。App 会把它识别为
+“模块已连接，但虚拟定位未开启”。保存成功时，响应中的经纬度必须与请求中的 WGS-84 坐标一致。
+
+要适配新的第三方客户端，需要：
+
+1. 为 `gs-loc.apple.com/wloc-settings/save` 添加 HTTP 请求脚本，解析上述参数并返回约定 JSON；
+2. 使用客户端的持久化存储保存坐标、精度和可选状态；
+3. 为 `gs-loc.apple.com` 和 `gs-loc-cn.apple.com` 配置 HTTPS 解密；
+4. 拦截 `gs-loc(-cn).apple.com/clls/wloc` 响应，读取同一份持久化数据并修改 WLOC 响应；
+5. 提供可订阅的模块文件，并确认查询、保存、清除和定位恢复都能在真机完成。
+
+App 只验证配置接口的 HTTP 状态、JSON 格式和坐标回读，不管理第三方客户端的证书、MITM、VPN 或代理状态。
+
 不要同时启用 APP 模式代理和第三方代理模式，避免两个代理链路互相干扰。
 
 ## 运行模式
@@ -159,14 +206,16 @@ WLOC 配置接口
 
 当前客户端状态：
 
-| 客户端 | 状态 |
-|---|---|
-| Shadowrocket | 当前用于真机测试 |
-| Surge | 已提供配置，尚未完整验证 |
-| Quantumult X | 已提供配置，尚未完整验证 |
-| Loon | 已提供配置，尚未完整验证 |
-| Stash | 已提供配置，尚未完整验证 |
-| Egern | 使用 Surge 模块，尚未完整验证 |
+| 客户端 | 状态 | 社区配置 |
+|---|---|---|
+| Shadowrocket | 当前用于真机测试 | App 内置教程 |
+| Surge | 已提供配置，尚未完整验证 | 待征集 |
+| Quantumult X | 已提供配置，尚未完整验证 | 待征集 |
+| Loon | 已提供配置，尚未完整验证 | 待征集 |
+| Stash | 已提供配置，尚未完整验证 | 待征集 |
+| Egern | 使用 Surge 模块，尚未完整验证 | 待征集 |
+
+社区配置按客户端分区审核；采纳后会在上表链接教程和投稿者，投稿者也可以选择匿名收录。
 
 相关模块快照和来源记录：
 
@@ -320,26 +369,31 @@ dist/PaopaoLocationSpoofer-unsigned.ipa
 
 欢迎提交：
 
-- Bug Report；
-- Feature Request；
-- 兼容性测试结果；
+- [Bug Report](https://github.com/xweiba/location-spoofer/issues/new?template=bug-report.yml)；
+- [功能建议](https://github.com/xweiba/location-spoofer/discussions/categories/%E5%8A%9F%E8%83%BD%E5%BB%BA%E8%AE%AE)；
+- [使用帮助与兼容性测试](https://github.com/xweiba/location-spoofer/discussions/categories/%E4%BD%BF%E7%94%A8%E5%B8%AE%E5%8A%A9)；
+- [第三方客户端配置和脱敏原始截图](https://github.com/xweiba/location-spoofer/discussions/categories/%E7%AC%AC%E4%B8%89%E6%96%B9%E9%85%8D%E7%BD%AE%E5%88%86%E4%BA%AB)；
 - 性能改进；
 - 文档改进；
 - 测试补充。
 
-提交 Issue 时建议包含：
+提交 Bug 时建议优先通过 App 的“设置 → 支持 → 报告 Bug”生成报告。报告包含：
 
 - iOS 版本；
-- 设备型号；
+- App 版本；
 - 使用的运行模式；
-- 复现步骤；
+- 当前第三方客户端；
+- 是否可以稳定复现；
+- 问题描述；
 - 脱敏后的运行日志；
-- 是否使用第三方代理客户端。
+
+GitHub Issue Form 中的“App 生成的诊断报告”字段与 App 复制内容一一对应。
 
 ## 文档
 
 - [构建说明](docs/BUILD.md)
 - [第三方模块说明](docs/THIRD_PARTY_MODULES.md)
+- [社区客户端教程与截图提交](docs/COMMUNITY_TUTORIALS.md)
 - [更新日志](docs/CHANGELOG.md)
 - [英文文档](README.en.md)
 - [GitHub Issues](https://github.com/xweiba/location-spoofer/issues)
@@ -377,9 +431,16 @@ dist/PaopaoLocationSpoofer-unsigned.ipa
 核心定位响应处理思路、Go 实现和第三方模块参考自：
 
 - [Yu9191/wloc](https://github.com/Yu9191/wloc)
+- [ios-location-spoofer](https://github.com/mekos2772/ios-location-spoofer)
+
+感谢以下 LINUX DO 用户对项目的贡献：
+
+- 功能修复：[陈泽](https://linux.do/u/lixiaobaivv)
+- 思路及建议：[Alex](https://linux.do/u/_alex)、[ye4241](https://linux.do/u/ye4241)
 
 友链：
 
 - [LINUX DO](https://linux.do/)
+- [iOS-Location-Spoofer-Web](https://github.com/akudamatata/iOS-Location-Spoofer-Web)
 
 感谢开源社区中参与 iOS 定位服务研究、网络代理和移动端测试工具建设的贡献者。

@@ -22,13 +22,14 @@ import (
 const proxyPort = 8888
 
 var (
-	stateMu         sync.Mutex
-	currentLat      float64
-	currentLon      float64
-	currentEnabled  bool
-	currentAccuracy int
-	globalCACert    *tls.Certificate
-	verifyToken     string
+	stateMu                        sync.Mutex
+	currentLat                     float64
+	currentLon                     float64
+	currentEnabled                 bool
+	currentAccuracy                int
+	currentMotionSimulationEnabled bool
+	globalCACert                   *tls.Certificate
+	verifyToken                    string
 
 	logMu      sync.Mutex
 	logEntries []string
@@ -94,10 +95,10 @@ func newProxy(cert *tls.Certificate) *goproxy.ProxyHttpServer {
 		}
 		if r.URL.Path == "/coords" {
 			stateMu.Lock()
-			enabled, lat, lon, accuracy := currentEnabled, currentLat, currentLon, currentAccuracy
+			enabled, lat, lon, accuracy, motionEnabled := currentEnabled, currentLat, currentLon, currentAccuracy, currentMotionSimulationEnabled
 			stateMu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(fmt.Sprintf(`{"enabled":%t,"lat":%.6f,"lon":%.6f,"accuracy":%d}`, enabled, lat, lon, accuracy)))
+			w.Write([]byte(fmt.Sprintf(`{"enabled":%t,"lat":%.6f,"lon":%.6f,"accuracy":%d,"motionSimulationEnabled":%t}`, enabled, lat, lon, accuracy, motionEnabled)))
 			return
 		}
 		if r.URL.Path == "/proxy.mobileconfig" || r.URL.Path == "/proxy.mobileconfig/" {
@@ -221,7 +222,7 @@ func patchWlocResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Respons
 	}
 
 	stateMu.Lock()
-	enabled, lat, lon, accuracy := currentEnabled, currentLat, currentLon, currentAccuracy
+	enabled, lat, lon, accuracy, motionEnabled := currentEnabled, currentLat, currentLon, currentAccuracy, currentMotionSimulationEnabled
 	stateMu.Unlock()
 
 	const maxPatchBodyBytes int64 = 1 << 20
@@ -249,7 +250,10 @@ func patchWlocResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Respons
 		return resp
 	}
 
-	patched, stats, err := patchResponseBody(body, wlocCoords{Latitude: lat, Longitude: lon, Accuracy: accuracy})
+	patched, stats, err := patchResponseBody(body, wlocCoords{
+		Latitude: lat, Longitude: lon, Accuracy: accuracy,
+		MotionSimulationEnabled: motionEnabled,
+	})
 	if err != nil || bytes.Equal(patched, body) {
 		if err != nil {
 			logEvent("wloc patch skipped: " + err.Error())
@@ -326,7 +330,7 @@ func randomUint32() uint32 {
 	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 }
 
-func startProxy(certPEM, keyPEM []byte, lat, lon float64, enabled bool, accuracy int) (*http.Server, error) {
+func startProxy(certPEM, keyPEM []byte, lat, lon float64, enabled bool, accuracy int, motionEnabled bool) (*http.Server, error) {
 	cert, err := parseCA(certPEM, keyPEM)
 	if err != nil {
 		return nil, err
@@ -335,6 +339,7 @@ func startProxy(certPEM, keyPEM []byte, lat, lon float64, enabled bool, accuracy
 	stateMu.Lock()
 	globalCACert = cert
 	currentLat, currentLon, currentEnabled, currentAccuracy = lat, lon, enabled, accuracy
+	currentMotionSimulationEnabled = motionEnabled
 	stateMu.Unlock()
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort))

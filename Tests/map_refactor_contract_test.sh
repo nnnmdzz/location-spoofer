@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+TIP_VIEWS="$ROOT/App/TipViews.swift"
+grep -Fq 'Label("还是无法生效？"' "$TIP_VIEWS" || fail "activation help must use the requested retry heading"
+grep -Fq 'Label("还是无法取消？"' "$TIP_VIEWS" || fail "deactivation help must use a mode-specific retry heading"
+grep -q 'frame(maxWidth: .infinity, alignment: .leading)' "$TIP_VIEWS" \
+  || fail "tip detail copy must align to the leading edge"
+
 MAP_HOME="$ROOT/App/MapHomeView.swift"
 MAP_STATE="$ROOT/App/MapLocationState.swift"
 MAP_BRIDGE="$ROOT/App/MapViewRepresentable.swift"
@@ -91,11 +97,15 @@ grep -q '地图创建前请求实时定位' "$CONTENT" || fail "fresh realtime p
 grep -q 'minimumCountForSuppression = 3' Shared/AppGroup.swift || fail "automatic tip suppression must require three successful operations"
 grep -q 'activeTip = .deactivation' "$MAP_HOME" || fail "manual deactivation help must use the non-suppressible generic tip sheet"
 grep -q 'stabilizationNanoseconds: UInt64 = 3_000_000_000' "$MAP_HOME" || fail "Wi-Fi changes must wait three seconds before environment verification"
-grep -q 'result.wifiChangeReminderTipKind' "$MAP_HOME" || fail "Wi-Fi proxy failures must use the background reminder mapping"
-grep -q 'if result == .certNotTrusted' "$MAP_HOME" || fail "Wi-Fi certificate failures must enter certificate setup"
-grep -q 'setup.applyVerificationResult(result)' "$MAP_HOME" || fail "Wi-Fi certificate failures must use the setup routing reducer"
+! grep -q 'wifiChangeReminderTipKind' "$MAP_HOME" || fail "Wi-Fi failures must not use a duplicate reminder mapping"
+grep -q 'setup.requestSetup(message:' "$MAP_HOME" || fail "missing Wi-Fi must enter the reusable proxy setup guide"
+test "$(grep -c 'setup.applyVerificationResult(result)' "$MAP_HOME")" -ge 2 \
+  || fail "activation and Wi-Fi-change verification failures must use the shared setup reducer"
+! grep -q 'activeTip = \.proxySetup' "$MAP_HOME" || fail "proxy failures must not use a duplicate tip sheet"
 ! grep -q 'case certificate' "$ROOT/App/TipViews.swift" || fail "generic certificate tip must not coexist with certificate setup"
 ! grep -q 'CertificateTipContent' "$ROOT/App/TipViews.swift" || fail "certificate failures must use the complete setup flow"
+! grep -q 'case proxySetup' "$ROOT/App/TipViews.swift" || fail "proxy failures must use the complete setup flow"
+! grep -q 'case rewriteFailed' "$ROOT/App/TipViews.swift" || fail "rewrite failures must use the complete setup flow"
 ! grep -q 'onChange(of: net.isAirplaneMode)' "$MAP_HOME" || fail "airplane recovery must not race the Wi-Fi change verifier"
 grep -q 'hasReceivedInitialPath' "$NETWORK_MONITOR" || fail "initial network path must not be reported as a Wi-Fi switch"
 grep -q 'lastKnownSSID' "$NETWORK_MONITOR" || fail "SSID polling must preserve a baseline across temporary nil readings"
