@@ -74,10 +74,39 @@ jobs:
           SIMULATOR_DESTINATION: ${{ steps.simulator.outputs.destination }}
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+          set -o pipefail
+          rm -rf /tmp/LocationSpooferTests.xcresult /tmp/xctest.log
           xcodebuild \
             -project PaopaoLocationSpoofer.xcodeproj \
             -scheme PaopaoLocationSpoofer \
             -destination "$SIMULATOR_DESTINATION" \
             -destination-timeout 120 \
-            test
+            -resultBundlePath /tmp/LocationSpooferTests.xcresult \
+            test 2>&1 | tee /tmp/xctest.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "===== XCTest result summary ====="
+            if [ -d /tmp/LocationSpooferTests.xcresult ]; then
+              xcrun xcresulttool get test-results summary --path /tmp/LocationSpooferTests.xcresult || true
+            fi
+            echo "===== XCTest diagnostic lines ====="
+            python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('/tmp/xctest.log')
+          lines = path.read_text(errors='replace').splitlines() if path.exists() else []
+          needles = (
+              ' error:', 'error: ', ' failed', 'failed ', 'failure', 'XCTAssert',
+              'Test Case', 'Test Suite', 'Testing failed', 'Failing tests',
+              'Could not', 'Unable to', 'terminated', 'crash'
+          )
+          matches = [line for line in lines if any(needle.lower() in line.lower() for needle in needles)]
+          for line in matches[-80:]:
+              print(line)
+          for line in matches[-12:]:
+              escaped = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=iOS XCTest::{escaped}')
+          PY
+          fi
+          exit "$status"
