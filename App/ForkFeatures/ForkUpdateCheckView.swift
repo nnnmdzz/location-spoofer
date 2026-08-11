@@ -89,7 +89,7 @@ struct ForkUpdateCheckView: View {
                     privateStatus = nil
                     privateErrorMessage = nil
                     if let result {
-                        Task { await checkPrivate(requestedVersion: result.latestVersion) }
+                        Task { await checkPrivateIfUpdateAvailable(result) }
                     }
                 }
             }
@@ -119,7 +119,11 @@ struct ForkUpdateCheckView: View {
                     Text("已配置").foregroundStyle(.secondary)
                 }
 
-                if isCheckingPrivate {
+                if result?.updateAvailable == false {
+                    Text("当前没有需要签名的新版本。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else if isCheckingPrivate {
                     HStack { ProgressView(); Text("正在检查 signed 版本…") }
                 } else if let privateStatus {
                     valueRow("Bundle ID", value: privateStatus.bundleIdentifier)
@@ -176,11 +180,11 @@ struct ForkUpdateCheckView: View {
 
                 Button {
                     guard let result else { return }
-                    Task { await checkPrivate(requestedVersion: result.latestVersion) }
+                    Task { await checkPrivateIfUpdateAvailable(result) }
                 } label: {
                     Label("重新检查私人更新", systemImage: "arrow.clockwise")
                 }
-                .disabled(result == nil || isCheckingPrivate)
+                .disabled(result?.updateAvailable != true || isCheckingPrivate)
 
                 Button {
                     showingPrivateConfiguration = true
@@ -216,13 +220,23 @@ struct ForkUpdateCheckView: View {
             let fetched = try await ForkReleaseService.fetchLatest()
             result = fetched
             if privateConfiguration != nil {
-                await checkPrivate(requestedVersion: fetched.latestVersion)
+                await checkPrivateIfUpdateAvailable(fetched)
             }
         } catch {
             result = nil
             privateStatus = nil
             errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func checkPrivateIfUpdateAvailable(_ result: ForkReleaseCheckResult) async {
+        guard result.updateAvailable else {
+            privateStatus = nil
+            privateErrorMessage = nil
+            return
+        }
+        await checkPrivate(requestedVersion: result.latestVersion)
     }
 
     @MainActor
