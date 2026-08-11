@@ -156,6 +156,8 @@ grep -q 'presentSuccessfulOperationTip(.activation)' "$ROOT/App/MapHomeView.swif
 grep -q 'presentSuccessfulOperationTip(.deactivation)' "$ROOT/App/MapHomeView.swift" || fail "third-party clear must present the deactivation tip"
 grep -q 'if spoofState == .active' "$ROOT/App/MapHomeView.swift" || fail "manual help must follow the shared spoof state"
 grep -q 'MARKETING_VERSION: "1.0.5"' "$ROOT/project.yml" || fail "marketing version must be 1.0.5"
-grep -q 'CURRENT_PROJECT_VERSION: "6"' "$ROOT/project.yml" || fail "build version must be 6"
+grep -q 'CURRENT_PROJECT_VERSION: "10"' "$ROOT/project.yml" || fail "build version must be 10"
+grep -q 'FORK_RELEASE_VERSION: "1.0.5-0004"' "$ROOT/project.yml" \
+  || fail "fork release version must be 1.0.5-0004"
 
 echo "PASS: third-party proxy mode contract"
