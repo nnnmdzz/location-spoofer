@@ -96,11 +96,11 @@ enum PrivateUpdateConfigurationStore {
         }
         components.fragment = nil
         components.query = nil
-        guard var url = components.url else {
-            throw PrivateUpdateConfigurationError.invalidWorkerURL
+        if components.path.count > 1 && components.path.hasSuffix("/") {
+            components.path.removeLast()
         }
-        while url.path.count > 1 && url.absoluteString.hasSuffix("/") {
-            url.deleteLastPathComponent()
+        guard let url = components.url else {
+            throw PrivateUpdateConfigurationError.invalidWorkerURL
         }
         return url
     }

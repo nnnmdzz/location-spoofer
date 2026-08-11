@@ -26,7 +26,7 @@ struct SavedSystemShortcut: Codable, Identifiable, Equatable {
 
     init(
         id: UUID = UUID(),
-        name: String,
+        name: String = "",
         inputMode: SavedShortcutInputMode = .none,
         fixedText: String = ""
     ) {
@@ -117,16 +117,16 @@ final class SystemShortcutCallbackRouter: ObservableObject {
         let queryItems = components.queryItems ?? []
         switch status {
         case "success":
-            let result = queryItems.first(where: { $0.name == "result" })?.value
-                ?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resultValue = queryItems.first(where: { $0.name == "result" })?.value
+            let result = resultValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             lastMessage = (result?.isEmpty == false) ? result : "快捷指令执行完成。"
             lastWasError = false
         case "cancel":
             lastMessage = "快捷指令已取消。"
             lastWasError = false
         default:
-            let errorMessage = queryItems.first(where: { $0.name == "errorMessage" })?.value
-                ?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let errorValue = queryItems.first(where: { $0.name == "errorMessage" })?.value
+            let errorMessage = errorValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             lastMessage = (errorMessage?.isEmpty == false) ? errorMessage : "快捷指令执行失败。"
             lastWasError = true
         }
