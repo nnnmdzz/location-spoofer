@@ -108,19 +108,24 @@ enum PrivateUpdateConfigurationStore {
 
 struct PrivateSignedUpdateStatus: Equatable {
     let requestedVersion: ForkReleaseVersion
+    let bundleIdentifier: String
     let available: Bool
+    let state: String?
     let manifestURL: URL?
     let expiresAt: String?
     let ipaSHA256: String?
+    let errorCode: String?
     let message: String?
 }
 
 enum PrivateSignedUpdateServiceError: LocalizedError {
     case invalidRequestURL
+    case missingBundleIdentifier
     case invalidResponse
     case unauthorized
     case unavailable(Int)
     case wrongVersion(String)
+    case wrongBundleIdentifier(String)
     case invalidManifestURL
     case network(String)
 
@@ -128,6 +133,8 @@ enum PrivateSignedUpdateServiceError: LocalizedError {
         switch self {
         case .invalidRequestURL:
             return "私人更新 Worker 地址无法组成有效请求。"
+        case .missingBundleIdentifier:
+            return "当前 App 没有可用的 Bundle ID，无法请求私人签名更新。"
         case .invalidResponse:
             return "私人更新 Worker 返回了无法识别的数据。"
         case .unauthorized:
@@ -136,6 +143,8 @@ enum PrivateSignedUpdateServiceError: LocalizedError {
             return "私人更新服务暂不可用（HTTP \(status)）。"
         case .wrongVersion(let tag):
             return "私人更新返回了不匹配的版本：\(tag)。"
+        case .wrongBundleIdentifier(let bundleIdentifier):
+            return "私人更新返回了不匹配的 Bundle ID：\(bundleIdentifier)。"
         case .invalidManifestURL:
             return "私人更新没有返回有效的 HTTPS OTA manifest。"
         case .network(let message):
@@ -147,24 +156,34 @@ enum PrivateSignedUpdateServiceError: LocalizedError {
 private struct PrivateSignedUpdateResponse: Decodable {
     let available: Bool
     let tag: String?
+    let bundleIdentifier: String?
+    let state: String?
     let manifestURL: URL?
     let expiresAt: String?
     let ipaSHA256: String?
+    let errorCode: String?
     let message: String?
 
     private enum CodingKeys: String, CodingKey {
-        case available, tag, message
+        case available, tag, state, message
+        case bundleIdentifier = "bundle_id"
         case manifestURL = "manifest_url"
         case expiresAt = "expires_at"
         case ipaSHA256 = "ipa_sha256"
+        case errorCode = "error_code"
     }
 }
 
 enum PrivateSignedUpdateService {
-    static func fetch(
+    static func requestURL(
         configuration: PrivateUpdateConfiguration,
-        requestedVersion: ForkReleaseVersion
-    ) async throws -> PrivateSignedUpdateStatus {
+        requestedVersion: ForkReleaseVersion,
+        bundleIdentifier: String
+    ) throws -> URL {
+        let normalizedBundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedBundleIdentifier.isEmpty else {
+            throw PrivateSignedUpdateServiceError.missingBundleIdentifier
+        }
         let endpoint = configuration.workerURL
             .appendingPathComponent("v1", isDirectory: true)
             .appendingPathComponent("location-spoofer", isDirectory: true)
@@ -172,10 +191,29 @@ enum PrivateSignedUpdateService {
         guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
             throw PrivateSignedUpdateServiceError.invalidRequestURL
         }
-        components.queryItems = [URLQueryItem(name: "tag", value: requestedVersion.tagName)]
+        components.queryItems = [
+            URLQueryItem(name: "tag", value: requestedVersion.tagName),
+            URLQueryItem(name: "bundle_id", value: normalizedBundleIdentifier),
+        ]
         guard let url = components.url else {
             throw PrivateSignedUpdateServiceError.invalidRequestURL
         }
+        return url
+    }
+
+    static func fetch(
+        configuration: PrivateUpdateConfiguration,
+        requestedVersion: ForkReleaseVersion
+    ) async throws -> PrivateSignedUpdateStatus {
+        guard let currentBundleIdentifier = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !currentBundleIdentifier.isEmpty else {
+            throw PrivateSignedUpdateServiceError.missingBundleIdentifier
+        }
+        let url = try requestURL(
+            configuration: configuration,
+            requestedVersion: requestedVersion,
+            bundleIdentifier: currentBundleIdentifier
+        )
 
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -209,9 +247,20 @@ enum PrivateSignedUpdateService {
             throw PrivateSignedUpdateServiceError.invalidResponse
         }
 
+        if let tag = payload.tag, tag != requestedVersion.tagName {
+            throw PrivateSignedUpdateServiceError.wrongVersion(tag)
+        }
+        if let returnedBundleIdentifier = payload.bundleIdentifier,
+           returnedBundleIdentifier != currentBundleIdentifier {
+            throw PrivateSignedUpdateServiceError.wrongBundleIdentifier(returnedBundleIdentifier)
+        }
+
         if payload.available {
             guard payload.tag == requestedVersion.tagName else {
                 throw PrivateSignedUpdateServiceError.wrongVersion(payload.tag ?? "未知")
+            }
+            guard payload.bundleIdentifier == currentBundleIdentifier else {
+                throw PrivateSignedUpdateServiceError.wrongBundleIdentifier(payload.bundleIdentifier ?? "未知")
             }
             guard let manifestURL = payload.manifestURL,
                   manifestURL.scheme?.lowercased() == "https" else {
@@ -221,10 +270,13 @@ enum PrivateSignedUpdateService {
 
         return PrivateSignedUpdateStatus(
             requestedVersion: requestedVersion,
+            bundleIdentifier: payload.bundleIdentifier ?? currentBundleIdentifier,
             available: payload.available,
+            state: payload.state,
             manifestURL: payload.manifestURL,
             expiresAt: payload.expiresAt,
             ipaSHA256: payload.ipaSHA256,
+            errorCode: payload.errorCode,
             message: payload.message
         )
     }
