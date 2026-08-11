@@ -55,6 +55,9 @@ jobs:
           npm ci
           npm test
 
+      - name: Build Device Release
+        run: ./build.sh
+
       - name: Resolve available iOS Simulator
         id: simulator
         shell: bash
@@ -64,7 +67,14 @@ jobs:
           test -n "$UDID"
           echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
-      - name: Build Device Release and run iOS unit tests
+      - name: Run iOS unit tests
         env:
           SIMULATOR_DESTINATION: ${{ steps.simulator.outputs.destination }}
-        run: ./build.sh --test
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project PaopaoLocationSpoofer.xcodeproj \
+            -scheme PaopaoLocationSpoofer \
+            -destination "$SIMULATOR_DESTINATION" \
+            test
