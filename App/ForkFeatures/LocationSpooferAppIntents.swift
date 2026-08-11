@@ -85,34 +85,34 @@ struct VirtualLocationStatusIntent: AppIntent {
 @available(iOS 16.0, *)
 struct LocationSpooferAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
-        [
-            AppShortcut(
-                intent: SetFavoriteVirtualLocationIntent(),
-                phrases: [
-                    "用 \(.applicationName) 设置虚拟定位",
-                    "在 \(.applicationName) 切换虚拟位置"
-                ],
-                shortTitle: "设置虚拟定位",
-                systemImageName: "location.fill"
-            ),
-            AppShortcut(
-                intent: ClearVirtualLocationIntent(),
-                phrases: [
-                    "用 \(.applicationName) 关闭虚拟定位",
-                    "在 \(.applicationName) 恢复真实定位"
-                ],
-                shortTitle: "关闭虚拟定位",
-                systemImageName: "location.slash"
-            ),
-            AppShortcut(
-                intent: VirtualLocationStatusIntent(),
-                phrases: [
-                    "查看 \(.applicationName) 虚拟定位状态",
-                    "\(.applicationName) 当前定位状态"
-                ],
-                shortTitle: "虚拟定位状态",
-                systemImageName: "location.circle"
-            )
-        ]
+        AppShortcut(
+            intent: SetFavoriteVirtualLocationIntent(),
+            phrases: [
+                "用 \(.applicationName) 设置虚拟定位",
+                "在 \(.applicationName) 切换虚拟位置"
+            ],
+            shortTitle: "设置虚拟定位",
+            systemImageName: "location.fill"
+        )
+
+        AppShortcut(
+            intent: ClearVirtualLocationIntent(),
+            phrases: [
+                "用 \(.applicationName) 关闭虚拟定位",
+                "在 \(.applicationName) 恢复真实定位"
+            ],
+            shortTitle: "关闭虚拟定位",
+            systemImageName: "location.slash"
+        )
+
+        AppShortcut(
+            intent: VirtualLocationStatusIntent(),
+            phrases: [
+                "查看 \(.applicationName) 虚拟定位状态",
+                "\(.applicationName) 当前定位状态"
+            ],
+            shortTitle: "虚拟定位状态",
+            systemImageName: "location.circle"
+        )
     }
 }
