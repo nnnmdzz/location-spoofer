@@ -57,13 +57,13 @@ jobs:
 
           if [ -s "$NOTES_FILE" ]; then
             if ! grep -Fq "# ${VERSION}" "$NOTES_FILE"; then
-              echo "::error::$NOTES_FILE 的标题必须包含 # ${VERSION}"
+              echo "::error::${NOTES_FILE} 的标题必须包含 # ${VERSION}"
               exit 1
             fi
             cp "$NOTES_FILE" "$RELEASE_NOTES"
             echo "Using archived release notes: $NOTES_FILE"
           else
-            echo "::notice::未找到 $NOTES_FILE；根据 Git 历史自动生成本次 Release 说明。"
+            echo "::notice::未找到 ${NOTES_FILE}；根据 Git 历史自动生成本次 Release 说明。"
             RELEASE_DATE="$(date +%F)" \
               bash Scripts/generate-release-notes.sh "$VERSION" "$RELEASE_NOTES" "$GITHUB_SHA"
           fi
