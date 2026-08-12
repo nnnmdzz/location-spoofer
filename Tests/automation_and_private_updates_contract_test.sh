@@ -7,19 +7,19 @@ quick="App/ForkFeatures/HomeQuickActions.swift"
 saved_service="Shared/ForkFeatures/SystemShortcutService.swift"
 saved_view="App/ForkFeatures/SavedShortcutsView.swift"
 adapter="Shared/ForkFeatures/PrivateSigningAdapter.swift"
+public_release="Shared/ForkFeatures/PublicReleaseSource.swift"
 enhancements="App/ForkFeatures/ForkEnhancementsView.swift"
 update_view="App/ForkFeatures/ForkUpdateCheckView.swift"
 plist="Resources/Info.plist"
 content="App/ContentView.swift"
 home="App/MapHomeView.swift"
 
-for file in "$quick" "$saved_service" "$saved_view" "$adapter"; do
+for file in "$quick" "$saved_service" "$saved_view" "$adapter" "$public_release"; do
   [[ -f "$file" ]] || fail "missing automation/private update file: $file"
 done
 
-# The signing client itself now lives in the private-signer-ios package, which owns the tests for
-# the transport, the Keychain rules, and the job lifecycle. What this repository still has to
-# guarantee is that the integration is wired correctly and leaks nothing.
+# The signing client itself lives in private-signer-ios. This repository only owns the app-specific
+# integration boundary and public unsigned-release convenience path.
 for file in Shared/ForkFeatures/PrivateSigningService.swift \
             Shared/ForkFeatures/PrivateUpdateService.swift \
             Shared/ForkFeatures/ForkReleaseService.swift \
@@ -47,16 +47,31 @@ grep -Fq 'fork_shortcut_callback_nonce' "$saved_service" || fail "shortcut callb
 grep -Fq '<string>paopaolocation-spoofer</string>' "$plist" || fail "callback URL scheme must be registered"
 grep -Fq '.onOpenURL' App/PaopaoLocationSpooferApp.swift || fail "app must route callback URLs"
 
-# The package is the only signing client, pinned to an exact version.
+# PrivateSigner must be immutable for a release build. Until v0.3.0 can be tagged through the
+# repository tooling, pin the exact merged SDK commit rather than a floating branch/range.
 grep -Fq 'url: https://github.com/nnnmdzz/private-signer-ios.git' project.yml || fail "the signing client package must be declared"
-grep -Fq 'exactVersion:' project.yml || fail "the signing client package must be pinned to an exact version"
+grep -Fq 'revision: e54fc2bbfcfb2c38d7e18d154e6aeb1a4ea78bd6' project.yml || fail "the v3 signing client must be pinned to the reviewed SDK commit"
 grep -Fq 'product: PrivateSignerKit' project.yml || fail "the app must depend on PrivateSignerKit"
+grep -Fq 'product: PrivateSignerSelfUpdate' project.yml || fail "the app must depend on PrivateSignerSelfUpdate"
+grep -Fq 'product: PrivateSignerUI' project.yml || fail "the app must depend on PrivateSignerUI"
 
-# Application-specific signing values live in the adapter and nowhere else.
-for symbol in SignerKeychainConfiguration GitHubReleaseSource SelfUpdateCoordinator; do
+# Application-specific signing construction stays in one adapter. The only compiled signing
+# identity is a stable Worker project ID; profile IDs and release URLs are runtime Worker state.
+for symbol in SignerKeychainConfiguration SelfUpdateCoordinator; do
   hits=$(grep -rl "$symbol" --include='*.swift' App Shared | grep -v "^$adapter$" || true)
   [[ -z "$hits" ]] || fail "$symbol is constructed outside the adapter: $hits"
 done
+
+grep -Fq 'projectID = "location-spoofer"' "$adapter" || fail "the app must declare its stable Worker project ID"
+if grep -rFq 'personal-main' --include='*.swift' App Shared; then
+  fail "personal-main must not survive as a client-side profile convention"
+fi
+if grep -Eq 'static let profile(ID|Id)|defaultProfileID' "$adapter"; then
+  fail "the app must not compile a provisioning profile ID"
+fi
+if grep -rFq 'GitHubReleaseSource' --include='*.swift' App Shared; then
+  fail "private signing must not rediscover GitHub releases in the SDK integration"
+fi
 
 # Losing the Stable Configuration Group means every installed client loses its Worker URL and
 # token on the next self-signature, so both the current and the legacy group must stay declared.
@@ -64,14 +79,22 @@ grep -Fq 'configurationAccessGroup = "\(teamID).com.paopaolabs.location-spoofer"
 grep -Fq 'app.cauliflower3903.lemon2546' "$adapter" || fail "the legacy access group must stay readable for already-installed clients"
 grep -Fq 'keychainService = "com.paopaolabs.location-spoofer.private-update"' "$adapter" || fail "the Keychain service must stay unchanged so shipped clients keep their configuration"
 
-# Release discovery must keep matching the asset the release workflow actually publishes.
-grep -Fq 'assetNameTemplate = "Location-Spoofer-{tag}-unsigned.ipa"' "$adapter" || fail "the release asset template must match the published asset name"
-grep -Fq 'repository = "nnnmdzz/location-spoofer"' "$adapter" || fail "the release repository must stay declared"
+# Public unsigned IPA discovery is allowed only as an app-local fallback. It must remain visibly
+# separate from project signing, whose source URL is resolved by the Worker.
+grep -Fq 'struct PublicReleaseSource' "$public_release" || fail "public unsigned release discovery must remain app-owned"
+grep -Fq 'repository: "nnnmdzz/location-spoofer"' "$adapter" || fail "the public release repository must stay declared"
+grep -Fq 'assetNameTemplate: "Location-Spoofer-{tag}-unsigned.ipa"' "$adapter" || fail "the public release asset template must match the release workflow"
+grep -Fq 'PublicUpdate.source.latestRelease' "$update_view" || fail "the unsigned fallback must use the app-local public release source"
+grep -Fq '公开 IPA 地址不会发给 Worker' "$update_view" || fail "the UI must keep the public/source separation explicit"
 
-# Both entry points stay reachable from the UI.
-grep -Fq 'SigningJobsView(context: PrivateSigning.uiContext)' "$enhancements" || fail "enhancements UI must expose arbitrary private IPA signing"
+# Location Spoofer's client principal is project-scoped. The app exposes project self-update but
+# deliberately does not expose the SDK's arbitrary URL/upload signer.
 grep -Fq 'SelfUpdateView(' "$update_view" || fail "update UI must expose the private signed update channel"
+grep -Fq 'projectID: PrivateSigning.projectID' "$update_view" || fail "private update UI must use the stable Worker project ID"
 grep -Fq '复制 IPA 下载地址' "$update_view" || fail "unsigned fallback must remain available"
+if grep -rFq 'SigningJobsView(' --include='*.swift' App Shared; then
+  fail "Location Spoofer must not expose generic arbitrary-IPA signing with its project-scoped token"
+fi
 
 # No credential and no endpoint may be compiled into this public repository.
 if grep -rEq 'workers\.dev|r2\.cloudflarestorage\.com' --include='*.swift' App Shared; then
@@ -81,10 +104,10 @@ if grep -rEqi '(signing[_-]?request[_-]?token|personal[_-]?update[_-]?token)[[:s
   fail "a signing token must never be compiled into public source"
 fi
 
-# The app's interface is Chinese but hardcoded, so nothing declared that. iOS then ran the app as
-# English and every properly localized package inside it — including the signing SDK — followed.
+# The app's interface is Chinese but hardcoded, so the bundle must declare that language; every
+# localized package inside it follows the host application's localization context.
 grep -Fq '<string>zh-Hans</string>' "$plist" || fail "the bundle must declare the language its interface is actually in"
 grep -Fq 'CFBundleLocalizations' "$plist" || fail "CFBundleLocalizations must list the supported languages"
 grep -Fq 'developmentLanguage: zh-Hans' project.yml || fail "XcodeGen must not reset the development language to en"
 
-echo "PASS: automation and private update contract"
+echo "PASS: automation and v3 private update contract"
