@@ -6,13 +6,12 @@ import PrivateSignerUI
 
 /// The fork's update screen.
 ///
-/// The unsigned public channel is this app's own concern: users copy the IPA URL into whichever
-/// third-party signing tool they already use. The private signed channel is not — it is the
-/// package's `SelfUpdateView`, reached from here.
+/// The public unsigned channel remains an app-owned GitHub lookup. The private signed channel is
+/// entirely Worker/project driven and never consumes the public IPA URL.
 struct ForkUpdateCheckView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var candidate: ReleaseCandidate?
+    @State private var candidate: PublicReleaseCandidate?
     @State private var checkedOnce = false
     @State private var errorMessage: String?
     @State private var isChecking = false
@@ -81,7 +80,7 @@ struct ForkUpdateCheckView: View {
                 }
                 .disabled(isChecking)
             } footer: {
-                Text("公开版本只检查 nnnmdzz/location-spoofer 的正式 GitHub Releases。私人 signed OTA 是独立增强通道；未配置或不可用时不会影响 unsigned IPA。")
+                Text("公开版本只检查 nnnmdzz/location-spoofer 的正式 GitHub Releases。私人 signed OTA 的版本和 Profile 均由 Worker v3 项目目录决定；公开 IPA 地址不会发给 Worker。")
             }
         }
         .navigationTitle("检查更新")
@@ -103,7 +102,7 @@ struct ForkUpdateCheckView: View {
             NavigationLink {
                 SelfUpdateView(
                     context: PrivateSigning.uiContext,
-                    releaseSource: PrivateSigning.releaseSource,
+                    projectID: PrivateSigning.projectID,
                     currentVersion: PrivateSigning.currentVersionString,
                     installedBundleIdentifier: PrivateSigning.installedBundleIdentifier
                 )
@@ -124,7 +123,7 @@ struct ForkUpdateCheckView: View {
         } header: {
             Text("私人签名更新")
         } footer: {
-            Text("Worker 地址和 Signing Request Token 只保存在本机 Keychain，不写入源码、Info.plist 或 UserDefaults。签名、多开副本与 OTA 安装都在该页面内完成。")
+            Text("Worker 地址和 scoped client token 只保存在本机 Keychain。App 只声明 projectID；最新版本、可用 Profile 和签名源均从 Worker 获取。")
         }
     }
 
@@ -147,7 +146,7 @@ struct ForkUpdateCheckView: View {
             checkedOnce = true
         }
         do {
-            candidate = try await PrivateSigning.releaseSource.latestRelease(
+            candidate = try await PublicUpdate.source.latestRelease(
                 currentVersion: PrivateSigning.currentVersionString
             )
         } catch {
