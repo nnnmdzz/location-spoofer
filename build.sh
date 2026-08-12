@@ -26,29 +26,6 @@ require_command() {
   fi
 }
 
-run_simulator_tests() {
-  local simulator_destination="${SIMULATOR_DESTINATION:-}"
-  if [ -z "$simulator_destination" ]; then
-    local simulator_id
-    simulator_id="$(
-      xcrun simctl list devices available \
-        | awk -F '[()]' '/^[[:space:]]*iPhone/ && !selected { print $2; selected = 1 }'
-    )"
-    if [ -z "$simulator_id" ]; then
-      echo "No available iPhone Simulator was found." >&2
-      echo "Set SIMULATOR_DESTINATION to an installed simulator destination." >&2
-      exit 1
-    fi
-    simulator_destination="platform=iOS Simulator,id=${simulator_id}"
-  fi
-
-  xcodebuild \
-    -project PaopaoLocationSpoofer.xcodeproj \
-    -scheme PaopaoLocationSpoofer \
-    -destination "$simulator_destination" \
-    test
-}
-
 run_tests=0
 case "${1:-}" in
   '')
@@ -83,7 +60,7 @@ test -s "$IPA"
 echo "Unsigned IPA created: $IPA"
 
 if [ "$run_tests" -eq 1 ]; then
-  run_simulator_tests
+  bash "$ROOT/Scripts/run-simulator-tests.sh"
 fi
 
 echo "Next: sign with Impactor (https://github.com/claration/Impactor) and install on device."
