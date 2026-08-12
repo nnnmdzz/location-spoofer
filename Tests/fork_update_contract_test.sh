@@ -15,7 +15,7 @@ submission="Shared/GitHubSubmission.swift"
 [[ -f "$view" ]] || fail "missing ForkUpdateCheckView"
 
 # Public unsigned release lookup is an app-local convenience path. Private signed update is a
-# separate Worker v3 project flow and must not receive the public IPA URL.
+# separate Worker v2 project flow and must not receive the public IPA URL.
 grep -Fq 'repository: "nnnmdzz/location-spoofer"' "$adapter" || fail "public release discovery must use fork repo"
 grep -Fq 'assetNameTemplate: "Location-Spoofer-{tag}-unsigned.ipa"' "$adapter" || fail "public release discovery must validate the versioned IPA asset name"
 grep -Fq 'struct PublicReleaseSource' "$public_release" || fail "public unsigned release lookup must remain an app-local source"
