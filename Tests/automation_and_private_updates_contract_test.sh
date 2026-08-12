@@ -47,10 +47,10 @@ grep -Fq 'fork_shortcut_callback_nonce' "$saved_service" || fail "shortcut callb
 grep -Fq '<string>paopaolocation-spoofer</string>' "$plist" || fail "callback URL scheme must be registered"
 grep -Fq '.onOpenURL' App/PaopaoLocationSpooferApp.swift || fail "app must route callback URLs"
 
-# PrivateSigner must be immutable for a release build. Until v0.3.0 can be tagged through the
-# repository tooling, pin the exact merged SDK commit rather than a floating branch/range.
+# PrivateSigner is immutable for a release build. The SDK speaks only the Worker's v2 contract and
+# uses the existing Signing Request Token, so release builds pin the exact reviewed commit.
 grep -Fq 'url: https://github.com/nnnmdzz/private-signer-ios.git' project.yml || fail "the signing client package must be declared"
-grep -Fq 'revision: e54fc2bbfcfb2c38d7e18d154e6aeb1a4ea78bd6' project.yml || fail "the v3 signing client must be pinned to the reviewed SDK commit"
+grep -Fq 'revision: 75529d52aed969f8a001b0538b04d7e5395f6012' project.yml || fail "the v2 signing client must be pinned to the reviewed SDK commit"
 grep -Fq 'product: PrivateSignerKit' project.yml || fail "the app must depend on PrivateSignerKit"
 grep -Fq 'product: PrivateSignerSelfUpdate' project.yml || fail "the app must depend on PrivateSignerSelfUpdate"
 grep -Fq 'product: PrivateSignerUI' project.yml || fail "the app must depend on PrivateSignerUI"
@@ -87,13 +87,13 @@ grep -Fq 'assetNameTemplate: "Location-Spoofer-{tag}-unsigned.ipa"' "$adapter" |
 grep -Fq 'PublicUpdate.source.latestRelease' "$update_view" || fail "the unsigned fallback must use the app-local public release source"
 grep -Fq '公开 IPA 地址不会发给 Worker' "$update_view" || fail "the UI must keep the public/source separation explicit"
 
-# Location Spoofer's client principal is project-scoped. The app exposes project self-update but
-# deliberately does not expose the SDK's arbitrary URL/upload signer.
+# Location Spoofer exposes only project self-update in its UI. The same v2 token is used by the SDK,
+# but this app deliberately does not expose the arbitrary URL/upload signer.
 grep -Fq 'SelfUpdateView(' "$update_view" || fail "update UI must expose the private signed update channel"
 grep -Fq 'projectID: PrivateSigning.projectID' "$update_view" || fail "private update UI must use the stable Worker project ID"
 grep -Fq '复制 IPA 下载地址' "$update_view" || fail "unsigned fallback must remain available"
 if grep -rFq 'SigningJobsView(' --include='*.swift' App Shared; then
-  fail "Location Spoofer must not expose generic arbitrary-IPA signing with its project-scoped token"
+  fail "Location Spoofer must not expose generic arbitrary-IPA signing"
 fi
 
 # No credential and no endpoint may be compiled into this public repository.
@@ -110,4 +110,4 @@ grep -Fq '<string>zh-Hans</string>' "$plist" || fail "the bundle must declare th
 grep -Fq 'CFBundleLocalizations' "$plist" || fail "CFBundleLocalizations must list the supported languages"
 grep -Fq 'developmentLanguage: zh-Hans' project.yml || fail "XcodeGen must not reset the development language to en"
 
-echo "PASS: automation and v3 private update contract"
+echo "PASS: automation and v2 private update contract"
