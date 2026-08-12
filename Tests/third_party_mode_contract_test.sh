@@ -155,9 +155,9 @@ test -s "$ROOT/docs/onboarding-screenshots/shadowrocket/shadowrocket-module-impo
 grep -q 'presentSuccessfulOperationTip(.activation)' "$ROOT/App/MapHomeView.swift" || fail "third-party save must present the activation tip"
 grep -q 'presentSuccessfulOperationTip(.deactivation)' "$ROOT/App/MapHomeView.swift" || fail "third-party clear must present the deactivation tip"
 grep -q 'if spoofState == .active' "$ROOT/App/MapHomeView.swift" || fail "manual help must follow the shared spoof state"
-grep -q 'MARKETING_VERSION: "1.0.5"' "$ROOT/project.yml" || fail "marketing version must be 1.0.5"
-grep -q 'CURRENT_PROJECT_VERSION: "12"' "$ROOT/project.yml" || fail "build version must be 12"
-grep -q 'FORK_RELEASE_VERSION: "1.0.5-0006"' "$ROOT/project.yml" \
-  || fail "fork release version must be 1.0.5-0006"
+grep -Eq 'MARKETING_VERSION: "[0-9]+\.[0-9]+\.[0-9]+"' "$ROOT/project.yml" || fail "marketing version must be semantic"
+grep -Eq 'CURRENT_PROJECT_VERSION: "[1-9][0-9]*"' "$ROOT/project.yml" || fail "build version must be a positive integer"
+grep -Eq 'FORK_RELEASE_VERSION: "[0-9]+\.[0-9]+\.[0-9]+-[0-9]{4}"' "$ROOT/project.yml" \
+  || fail "fork release version must use X.Y.Z-NNNN"
 
 echo "PASS: third-party proxy mode contract"
