@@ -81,4 +81,10 @@ if grep -rEqi '(signing[_-]?request[_-]?token|personal[_-]?update[_-]?token)[[:s
   fail "a signing token must never be compiled into public source"
 fi
 
+# The app's interface is Chinese but hardcoded, so nothing declared that. iOS then ran the app as
+# English and every properly localized package inside it — including the signing SDK — followed.
+grep -Fq '<string>zh-Hans</string>' "$plist" || fail "the bundle must declare the language its interface is actually in"
+grep -Fq 'CFBundleLocalizations' "$plist" || fail "CFBundleLocalizations must list the supported languages"
+grep -Fq 'developmentLanguage: zh-Hans' project.yml || fail "XcodeGen must not reset the development language to en"
+
 echo "PASS: automation and private update contract"

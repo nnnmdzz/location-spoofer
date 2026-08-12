@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.paopaolabs
   deploymentTarget:
     iOS: "15.0"
+  developmentLanguage: zh-Hans
   createIntermediateGroups: true
 
 settings:
