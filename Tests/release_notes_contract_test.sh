@@ -15,6 +15,11 @@ grep -Fq 'Prepare release notes' "$WORKFLOW" || fail "release workflow must prep
 grep -Fq 'bash Scripts/generate-release-notes.sh "$VERSION" "$RELEASE_NOTES" "$GITHUB_SHA"' "$WORKFLOW" \
   || fail "missing automatic release-note fallback"
 grep -Fq 'Using archived release notes' "$WORKFLOW" || fail "hand-written archived notes must stay preferred"
+grep -Fq '未找到 ${NOTES_FILE}；根据 Git 历史自动生成本次 Release 说明。' "$WORKFLOW" \
+  || fail "release-note notice must delimit NOTES_FILE before non-ASCII punctuation"
+if grep -Fq '未找到 $NOTES_FILE；' "$WORKFLOW"; then
+  fail "bare NOTES_FILE before non-ASCII punctuation is unsafe under bash nounset"
+fi
 if grep -Fq '缺少版本归档' "$WORKFLOW"; then
   fail "missing archived notes must not block a release"
 fi
