@@ -58,8 +58,20 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Build unsigned IPA and run tests
-        run: ./build.sh --test
+      - name: Build unsigned IPA
+        run: ./build.sh
+
+      - name: Run iOS Simulator unit tests
+        run: bash Scripts/run-simulator-tests.sh
+
+      - name: Upload iOS test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-diagnostics-${{ github.run_id }}
+          path: build/TestResults
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Rename IPA for release
         run: mv dist/PaopaoLocationSpoofer-unsigned.ipa "dist/${{ steps.release.outputs.asset }}"
