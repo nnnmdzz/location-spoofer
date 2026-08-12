@@ -1,5 +1,4 @@
 import SwiftUI
-import PrivateSignerUI
 
 struct ForkEnhancementsView: View {
     @ObservedObject private var effectMonitor = LocationEffectMonitor.shared
@@ -37,12 +36,6 @@ struct ForkEnhancementsView: View {
                 } label: {
                     Label("App 更新", systemImage: "arrow.triangle.2.circlepath")
                 }
-
-                NavigationLink {
-                    SigningJobsView(context: PrivateSigning.uiContext)
-                } label: {
-                    Label("私人 IPA 签名", systemImage: "signature")
-                }
             }
 
             Section("系统设置快捷入口") {
@@ -57,7 +50,7 @@ struct ForkEnhancementsView: View {
             }
 
             Section("关于增强功能") {
-                Text("这里集中放置 fork 专属能力。WLOC 精度同时用于 APP 模式和第三方代理模式；定位生效判断为诊断性启发式结果，不代表 iOS 暴露了 GPS 来源控制。")
+                Text("这里集中放置 fork 专属能力。私人签名凭据现在只授权 Location Spoofer 项目更新，不再同时作为任意 IPA 的通用签名凭据。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
