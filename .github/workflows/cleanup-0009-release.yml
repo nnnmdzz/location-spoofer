@@ -1,0 +1,19 @@
+name: Sync superseded 0009 release notes
+
+on:
+  push:
+    branches:
+      - cleanup/update-0009-release
+
+permissions:
+  contents: write
+
+jobs:
+  update-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace published 0009 release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit v1.0.5-0009 --notes-file docs/releases/v1.0.5-0009.md
