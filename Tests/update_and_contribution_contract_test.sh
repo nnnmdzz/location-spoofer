@@ -9,7 +9,7 @@ SETUP="$ROOT/App/FirstSetupView.swift"
 SETTINGS="$ROOT/App/SettingsView.swift"
 BUG_REPORT="$ROOT/App/BugReportView.swift"
 GITHUB_SUBMISSION="$ROOT/Shared/GitHubSubmission.swift"
-FORK_RELEASE="$ROOT/Shared/ForkFeatures/ForkReleaseService.swift"
+FORK_ADAPTER="$ROOT/Shared/ForkFeatures/PrivateSigningAdapter.swift"
 FORK_UPDATE_VIEW="$ROOT/App/ForkFeatures/ForkUpdateCheckView.swift"
 DISCUSSION_FORM="$ROOT/.github/DISCUSSION_TEMPLATE/第三方配置分享.yml"
 ISSUE_FORM="$ROOT/.github/ISSUE_TEMPLATE/bug-report.yml"
@@ -24,10 +24,10 @@ grep -q 'timeoutIntervalForRequest = 1.5' "$CONFIG" || fail "remote configuratio
 # Fork update behavior is manual and fork-owned.
 ! grep -Fq '.task { await checkForUpdates() }' "$CONTENT" || fail "startup must not auto-check updates"
 grep -Fq 'ForkUpdateCheckView()' "$SETTINGS" || fail "Settings must expose the fork manual update view"
-grep -Fq 'api.github.com/repos/nnnmdzz/location-spoofer/releases?per_page=30' "$FORK_RELEASE" || fail "fork release API missing"
-grep -Fq 'browser_download_url' "$FORK_RELEASE" || fail "must use GitHub asset download URL"
+grep -Fq 'repository = "nnnmdzz/location-spoofer"' "$FORK_ADAPTER" || fail "fork release repository missing"
+grep -Fq 'GitHubReleaseSource(' "$FORK_ADAPTER" || fail "release discovery must use the package release source"
 grep -Fq 'textSelection(.enabled)' "$FORK_UPDATE_VIEW" || fail "IPA URL must be selectable"
-grep -Fq 'UIPasteboard.general.string = result.ipaURL.absoluteString' "$FORK_UPDATE_VIEW" || fail "IPA URL must be copyable"
+grep -Fq 'UIPasteboard.general.string = candidate.ipaURL.absoluteString' "$FORK_UPDATE_VIEW" || fail "IPA URL must be copyable"
 
 # All submission actions owned by this fork must stay inside this repository.
 grep -Fq 'https://github.com/nnnmdzz/location-spoofer' "$GITHUB_SUBMISSION" || fail "fork GitHub destination missing"

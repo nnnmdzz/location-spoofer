@@ -15,6 +15,13 @@ settings:
     CODE_SIGNING_ALLOWED: "NO"
     CODE_SIGNING_REQUIRED: "NO"
 
+packages:
+  # Pinned exactly, not with a range: self-update is how this fork ships, and a dependency that
+  # drifts on its own could break the one mechanism that would otherwise deliver the fix.
+  PrivateSigner:
+    url: https://github.com/nnnmdzz/private-signer-ios.git
+    exactVersion: 0.1.0
+
 targets:
   PaopaoLocationSpoofer:
     type: application
@@ -23,6 +30,13 @@ targets:
       - path: App
       - path: Shared
       - path: Resources
+    dependencies:
+      - package: PrivateSigner
+        product: PrivateSignerKit
+      - package: PrivateSigner
+        product: PrivateSignerSelfUpdate
+      - package: PrivateSigner
+        product: PrivateSignerUI
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.paopaolabs.location-spoofer

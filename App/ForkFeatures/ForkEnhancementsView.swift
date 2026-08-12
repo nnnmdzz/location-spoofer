@@ -1,4 +1,5 @@
 import SwiftUI
+import PrivateSignerUI
 
 struct ForkEnhancementsView: View {
     @ObservedObject private var effectMonitor = LocationEffectMonitor.shared
@@ -38,7 +39,7 @@ struct ForkEnhancementsView: View {
                 }
 
                 NavigationLink {
-                    PrivateSigningView()
+                    SigningJobsView(context: PrivateSigning.uiContext)
                 } label: {
                     Label("私人 IPA 签名", systemImage: "signature")
                 }

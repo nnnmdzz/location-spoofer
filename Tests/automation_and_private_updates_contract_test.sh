@@ -6,16 +6,25 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 quick="App/ForkFeatures/HomeQuickActions.swift"
 saved_service="Shared/ForkFeatures/SystemShortcutService.swift"
 saved_view="App/ForkFeatures/SavedShortcutsView.swift"
-private_service="Shared/ForkFeatures/PrivateUpdateService.swift"
-private_signing_service="Shared/ForkFeatures/PrivateSigningService.swift"
-private_signing_view="App/ForkFeatures/PrivateSigningView.swift"
+adapter="Shared/ForkFeatures/PrivateSigningAdapter.swift"
+enhancements="App/ForkFeatures/ForkEnhancementsView.swift"
 update_view="App/ForkFeatures/ForkUpdateCheckView.swift"
 plist="Resources/Info.plist"
 content="App/ContentView.swift"
 home="App/MapHomeView.swift"
 
-for file in "$quick" "$saved_service" "$saved_view" "$private_service" "$private_signing_service" "$private_signing_view"; do
+for file in "$quick" "$saved_service" "$saved_view" "$adapter"; do
   [[ -f "$file" ]] || fail "missing automation/private update file: $file"
+done
+
+# The signing client itself now lives in the private-signer-ios package, which owns the tests for
+# the transport, the Keychain rules, and the job lifecycle. What this repository still has to
+# guarantee is that the integration is wired correctly and leaks nothing.
+for file in Shared/ForkFeatures/PrivateSigningService.swift \
+            Shared/ForkFeatures/PrivateUpdateService.swift \
+            Shared/ForkFeatures/ForkReleaseService.swift \
+            App/ForkFeatures/PrivateSigningView.swift; do
+  [[ -f "$file" ]] && fail "$file was migrated into the private-signer-ios package and must not come back"
 done
 
 grep -Fq 'UIApplication.shared.shortcutItems = items' "$quick" || fail "dynamic Home Screen quick actions must be registered"
@@ -38,25 +47,38 @@ grep -Fq 'fork_shortcut_callback_nonce' "$saved_service" || fail "shortcut callb
 grep -Fq '<string>paopaolocation-spoofer</string>' "$plist" || fail "callback URL scheme must be registered"
 grep -Fq '.onOpenURL' App/PaopaoLocationSpooferApp.swift || fail "app must route callback URLs"
 
-grep -Fq 'kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly' "$private_service" || fail "private update configuration must use ThisDeviceOnly Keychain accessibility"
-grep -Fq 'forHTTPHeaderField: "Authorization"' "$private_signing_service" || fail "Signing Request Token must travel in authorization header"
-grep -Fq 'configuration.personalToken' "$private_signing_service" || fail "Signing Request Token must be read from Keychain configuration"
-grep -Fq 'path: "v2/sign/jobs"' "$private_signing_service" || fail "private worker API must use generic v2 Signing Jobs"
-grep -Fq 'maximumSourceBytes = 100 * 1024 * 1024' "$private_signing_service" || fail "local IPA upload must enforce the 100 MB limit"
-grep -Fq 'session.partSize' "$private_signing_service" || fail "local IPA upload must use Worker-selected multipart sizing"
-grep -Fq 'PrivateUpdateConfigurationStore.signingAccessGroups' "$private_service" || fail "self-update must request stable and legacy Keychain groups"
-grep -Fq 'PrivateSigningView()' App/ForkFeatures/ForkEnhancementsView.swift || fail "enhancements UI must expose arbitrary private IPA signing"
-grep -Fq 'Task.sleep(nanoseconds: 5_000_000_000)' "$private_signing_view" || fail "active jobs must poll every five seconds in the foreground"
-grep -Fq 'manifestURL.scheme?.lowercased() == "https"' "$private_service" || fail "private manifest must require HTTPS"
-grep -Fq 'components.scheme = "itms-services"' "$private_service" || fail "private update must hand off to iOS OTA installer"
-grep -Fq 'PrivateUpdateConfigurationStore' "$update_view" || fail "update UI must expose private configuration"
-grep -Fq 'guard result.updateAvailable else' "$update_view" || fail "private signing must require a newer public release"
-grep -Fq 'checkPrivateIfUpdateAvailable' "$update_view" || fail "all private update checks must share the newer-version gate"
-grep -Fq '直接安装已签名版本' "$update_view" || fail "update UI must expose direct signed install action"
+# The package is the only signing client, pinned to an exact version.
+grep -Fq 'url: https://github.com/nnnmdzz/private-signer-ios.git' project.yml || fail "the signing client package must be declared"
+grep -Fq 'exactVersion:' project.yml || fail "the signing client package must be pinned to an exact version"
+grep -Fq 'product: PrivateSignerKit' project.yml || fail "the app must depend on PrivateSignerKit"
+
+# Application-specific signing values live in the adapter and nowhere else.
+for symbol in SignerKeychainConfiguration GitHubReleaseSource SelfUpdateCoordinator; do
+  hits=$(grep -rl "$symbol" --include='*.swift' App Shared | grep -v "^$adapter$" || true)
+  [[ -z "$hits" ]] || fail "$symbol is constructed outside the adapter: $hits"
+done
+
+# Losing the Stable Configuration Group means every installed client loses its Worker URL and
+# token on the next self-signature, so both the current and the legacy group must stay declared.
+grep -Fq 'configurationAccessGroup = "\(teamID).com.paopaolabs.location-spoofer"' "$adapter" || fail "the Stable Configuration Group must stay declared"
+grep -Fq 'app.cauliflower3903.lemon2546' "$adapter" || fail "the legacy access group must stay readable for already-installed clients"
+grep -Fq 'keychainService = "com.paopaolabs.location-spoofer.private-update"' "$adapter" || fail "the Keychain service must stay unchanged so shipped clients keep their configuration"
+
+# Release discovery must keep matching the asset the release workflow actually publishes.
+grep -Fq 'assetNameTemplate = "Location-Spoofer-{tag}-unsigned.ipa"' "$adapter" || fail "the release asset template must match the published asset name"
+grep -Fq 'repository = "nnnmdzz/location-spoofer"' "$adapter" || fail "the release repository must stay declared"
+
+# Both entry points stay reachable from the UI.
+grep -Fq 'SigningJobsView(context: PrivateSigning.uiContext)' "$enhancements" || fail "enhancements UI must expose arbitrary private IPA signing"
+grep -Fq 'SelfUpdateView(' "$update_view" || fail "update UI must expose the private signed update channel"
 grep -Fq '复制 IPA 下载地址' "$update_view" || fail "unsigned fallback must remain available"
 
-if grep -Eq 'workers\.dev|r2\.cloudflarestorage\.com' App/ForkFeatures/ForkUpdateCheckView.swift Shared/ForkFeatures/PrivateUpdateService.swift; then
+# No credential and no endpoint may be compiled into this public repository.
+if grep -rEq 'workers\.dev|r2\.cloudflarestorage\.com' --include='*.swift' App Shared; then
   fail "private Worker/R2 endpoint must not be hard-coded in public source"
+fi
+if grep -rEqi '(signing[_-]?request[_-]?token|personal[_-]?update[_-]?token)[[:space:]]*=[[:space:]]*"[^"]+"' --include='*.swift' App Shared; then
+  fail "a signing token must never be compiled into public source"
 fi
 
 echo "PASS: automation and private update contract"
