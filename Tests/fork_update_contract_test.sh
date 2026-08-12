@@ -25,8 +25,10 @@ grep -Fq 'ForkUpdateCheckView()' "$settings" || fail "Settings manual update but
 grep -Fq 'textSelection(.enabled)' "$view" || fail "IPA URL must be selectable"
 grep -Fq 'UIPasteboard.general.string = candidate.ipaURL.absoluteString' "$view" || fail "IPA URL must be copyable"
 
-grep -Fq 'FORK_RELEASE_VERSION: "1.0.5-0006"' project.yml || fail "missing fork release build setting"
+release_version="$(sed -nE 's/^[[:space:]]*FORK_RELEASE_VERSION: "([^"]+)".*/\1/p' project.yml | head -n 1)"
+[[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]{4}$ ]] || fail "missing or invalid fork release build setting"
 grep -Fq '<key>ForkReleaseVersion</key>' Resources/Info.plist || fail "missing ForkReleaseVersion plist key"
+grep -Fq '<string>$(FORK_RELEASE_VERSION)</string>' Resources/Info.plist || fail "ForkReleaseVersion must come from project.yml"
 
 grep -Fq 'https://github.com/nnnmdzz/location-spoofer' "$submission" || fail "submission URLs must use fork repo"
 if grep -Fq 'https://github.com/xweiba/location-spoofer' "$submission"; then
