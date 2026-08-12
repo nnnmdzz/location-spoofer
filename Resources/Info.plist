@@ -3,7 +3,16 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<string>zh-Hans</string>
+	<!-- The interface is Chinese, but it was hardcoded in Swift rather than localized, so the
+	     bundle declared no languages at all and iOS ran the app as English. Anything that does
+	     localize properly — the private-signer-ios package, and every system-supplied string —
+	     inherited that and appeared in English inside a Chinese app. -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hans</string>
+		<string>en</string>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Location Spoofer</string>
 	<key>CFBundleExecutable</key>
