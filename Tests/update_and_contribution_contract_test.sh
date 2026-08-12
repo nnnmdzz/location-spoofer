@@ -10,6 +10,7 @@ SETTINGS="$ROOT/App/SettingsView.swift"
 BUG_REPORT="$ROOT/App/BugReportView.swift"
 GITHUB_SUBMISSION="$ROOT/Shared/GitHubSubmission.swift"
 FORK_ADAPTER="$ROOT/Shared/ForkFeatures/PrivateSigningAdapter.swift"
+PUBLIC_RELEASE="$ROOT/Shared/ForkFeatures/PublicReleaseSource.swift"
 FORK_UPDATE_VIEW="$ROOT/App/ForkFeatures/ForkUpdateCheckView.swift"
 DISCUSSION_FORM="$ROOT/.github/DISCUSSION_TEMPLATE/第三方配置分享.yml"
 ISSUE_FORM="$ROOT/.github/ISSUE_TEMPLATE/bug-report.yml"
@@ -21,11 +22,15 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 grep -q 'static let fallback = AppRemoteConfiguration' "$CONFIG" || fail "missing remote-configuration fallback"
 grep -q 'timeoutIntervalForRequest = 1.5' "$CONFIG" || fail "remote configuration timeout changed"
 
-# Fork update behavior is manual and fork-owned.
+# Fork update behavior is manual and fork-owned. Public unsigned lookup remains local; private
+# signed update uses the Worker's stable project identity and never receives that public URL.
 ! grep -Fq '.task { await checkForUpdates() }' "$CONTENT" || fail "startup must not auto-check updates"
 grep -Fq 'ForkUpdateCheckView()' "$SETTINGS" || fail "Settings must expose the fork manual update view"
-grep -Fq 'repository = "nnnmdzz/location-spoofer"' "$FORK_ADAPTER" || fail "fork release repository missing"
-grep -Fq 'GitHubReleaseSource(' "$FORK_ADAPTER" || fail "release discovery must use the package release source"
+grep -Fq 'repository: "nnnmdzz/location-spoofer"' "$FORK_ADAPTER" || fail "fork public release repository missing"
+grep -Fq 'struct PublicReleaseSource' "$PUBLIC_RELEASE" || fail "public unsigned release source missing"
+grep -Fq 'projectID = "location-spoofer"' "$FORK_ADAPTER" || fail "private update project identity missing"
+grep -Fq 'projectID: PrivateSigning.projectID' "$FORK_UPDATE_VIEW" || fail "private update must use Worker project identity"
+! grep -rFq 'GitHubReleaseSource' --include='*.swift' "$ROOT/App" "$ROOT/Shared" || fail "private update still uses SDK GitHub release discovery"
 grep -Fq 'textSelection(.enabled)' "$FORK_UPDATE_VIEW" || fail "IPA URL must be selectable"
 grep -Fq 'UIPasteboard.general.string = candidate.ipaURL.absoluteString' "$FORK_UPDATE_VIEW" || fail "IPA URL must be copyable"
 

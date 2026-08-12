@@ -3,17 +3,11 @@ import PrivateSignerKit
 import PrivateSignerSelfUpdate
 import PrivateSignerUI
 
-/// Every value that is specific to *this* app's private signing setup.
+/// Everything specific to this app's private-signing integration.
 ///
-/// The signing client itself lives in the `private-signer-ios` package. Keeping the
-/// application-specific values in one file is what lets that package be upgraded without
-/// touching the rest of the fork, and what keeps the fork's merge surface against upstream small.
-///
-/// Integration guide:
-/// https://github.com/nnnmdzz/private-signer-ios/blob/main/docs/client-integration-guide.zh-CN.md
+/// Only stable application identity belongs here. Profile IDs, release URLs, and latest-version
+/// policy are Worker deployment state and are discovered at runtime through the v3 SDK.
 enum PrivateSigning {
-    /// Public information — it is visible in any signed IPA and is the prefix of the access
-    /// groups below. It is not a credential.
     static let teamID = "4JJ849C5Q2"
 
     /// The Stable Configuration Group. Changing this value strands the Worker URL and token of
@@ -23,12 +17,10 @@ enum PrivateSigning {
     /// Written by builds up to `1.0.5-0005`.
     static let legacyAccessGroups = ["\(teamID).app.cauliflower3903.lemon2546"]
 
-    /// Unchanged from the pre-package client so already-stored configuration stays readable.
     static let keychainService = "com.paopaolabs.location-spoofer.private-update"
 
-    static let repository = "nnnmdzz/location-spoofer"
-    static let assetNameTemplate = "Location-Spoofer-{tag}-unsigned.ipa"
-    static let profileID = "personal-main"
+    /// Stable identity understood by the Worker's project registry.
+    static let projectID = "location-spoofer"
     static let bundledFallbackVersion = "1.0.5-0001"
 
     static var currentVersionString: String {
@@ -54,30 +46,30 @@ enum PrivateSigning {
         SignerConfigurationStore(keychain: keychain)
     }
 
-    static var releaseSource: GitHubReleaseSource {
-        GitHubReleaseSource(
-            repository: repository,
-            assetNameTemplate: assetNameTemplate,
-            userAgent: userAgent
-        )
-    }
-
     static var coordinator: SelfUpdateCoordinator {
         SelfUpdateCoordinator(
             store: store,
-            releaseSource: releaseSource,
+            projectID: projectID,
             currentVersion: currentVersionString,
             userAgent: userAgent,
-            installedBundleIdentifier: installedBundleIdentifier,
-            profileID: profileID
+            installedBundleIdentifier: installedBundleIdentifier
         )
     }
 
     static var uiContext: SignerUIContext {
         SignerUIContext(
             keychain: keychain,
-            userAgent: userAgent,
-            defaultProfileID: profileID
+            userAgent: userAgent
         )
     }
+}
+
+/// This remains solely for the public unsigned-IPA copy workflow. It is deliberately not used by
+/// private signing or self-update.
+enum PublicUpdate {
+    static let source = PublicReleaseSource(
+        repository: "nnnmdzz/location-spoofer",
+        assetNameTemplate: "Location-Spoofer-{tag}-unsigned.ipa",
+        userAgent: PrivateSigning.userAgent
+    )
 }
