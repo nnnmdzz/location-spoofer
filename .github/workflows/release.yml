@@ -44,7 +44,19 @@ jobs:
             echo "::error::无效发行版本: $VERSION"
             exit 1
           fi
+
+          APP_VERSION="${VERSION#v}"
+          MARKETING_VERSION="${APP_VERSION%%-*}"
+          BUILD_NUMBER="$GITHUB_RUN_NUMBER"
+          if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::无效构建号: $BUILD_NUMBER"
+            exit 1
+          fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "marketing_version=$MARKETING_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
           echo "asset=Location-Spoofer-${VERSION}-unsigned.ipa" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release notes
@@ -82,7 +94,20 @@ jobs:
         run: brew install xcodegen
 
       - name: Build unsigned IPA
+        env:
+          RELEASE_MARKETING_VERSION: "${{ steps.release.outputs.marketing_version }}"
+          RELEASE_BUILD_NUMBER: "${{ steps.release.outputs.build_number }}"
+          RELEASE_FORK_VERSION: "${{ steps.release.outputs.app_version }}"
         run: ./build.sh
+
+      - name: Validate IPA release metadata
+        shell: bash
+        run: |
+          bash Scripts/validate-release-ipa.sh \
+            dist/PaopaoLocationSpoofer-unsigned.ipa \
+            "${{ steps.release.outputs.app_version }}" \
+            "${{ steps.release.outputs.marketing_version }}" \
+            "${{ steps.release.outputs.build_number }}"
 
       - name: Run iOS Simulator unit tests
         run: bash Scripts/run-simulator-tests.sh
