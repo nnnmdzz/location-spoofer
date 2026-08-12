@@ -1,48 +1,58 @@
 import SwiftUI
 import UIKit
+import PrivateSignerKit
+import PrivateSignerSelfUpdate
+import PrivateSignerUI
 
+/// The fork's update screen.
+///
+/// The unsigned public channel is this app's own concern: users copy the IPA URL into whichever
+/// third-party signing tool they already use. The private signed channel is not — it is the
+/// package's `SelfUpdateView`, reached from here.
 struct ForkUpdateCheckView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var result: ForkReleaseCheckResult?
+
+    @State private var candidate: ReleaseCandidate?
+    @State private var checkedOnce = false
     @State private var errorMessage: String?
     @State private var isChecking = false
     @State private var didCopy = false
-
-    @State private var privateConfiguration: PrivateUpdateConfiguration?
-    @State private var privateStatus: PrivateSignedUpdateStatus?
-    @State private var privateErrorMessage: String?
-    @State private var isCheckingPrivate = false
-    @State private var showingPrivateConfiguration = false
+    @State private var hasPrivateConfiguration = false
 
     var body: some View {
         List {
             Section("版本") {
-                valueRow("当前版本", value: result?.currentVersion.description ?? ForkReleaseService.currentVersionString)
-                if let result {
-                    valueRow("最新版本", value: result.latestVersion.description)
+                valueRow("当前版本", value: PrivateSigning.currentVersionString)
+                if let candidate {
+                    valueRow("最新版本", value: candidate.version)
                     HStack {
                         Text("状态")
                         Spacer()
-                        Text(result.updateAvailable ? "发现新版本" : "已是最新版")
-                            .foregroundStyle(result.updateAvailable ? .orange : .secondary)
+                        Text("发现新版本").foregroundStyle(.orange)
+                    }
+                } else if checkedOnce && !isChecking && errorMessage == nil {
+                    HStack {
+                        Text("状态")
+                        Spacer()
+                        Text("已是最新版").foregroundStyle(.secondary)
                     }
                 }
             }
 
-            if let result {
+            if let candidate {
                 Section("公开 unsigned IPA") {
-                    Text(result.ipaURL.absoluteString)
+                    Text(candidate.ipaURL.absoluteString)
                         .font(.footnote.monospaced())
                         .textSelection(.enabled)
 
                     Button {
-                        UIPasteboard.general.string = result.ipaURL.absoluteString
+                        UIPasteboard.general.string = candidate.ipaURL.absoluteString
                         didCopy = true
                     } label: {
                         Label(didCopy ? "已复制 IPA 下载地址" : "复制 IPA 下载地址", systemImage: "doc.on.doc")
                     }
 
-                    if let digest = result.digest, !digest.isEmpty {
+                    if let digest = candidate.expectedSHA256, !digest.isEmpty {
                         Text(digest)
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
@@ -55,8 +65,7 @@ struct ForkUpdateCheckView: View {
 
             if let errorMessage {
                 Section("公开更新检查结果") {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(.red)
                 }
             }
 
@@ -67,7 +76,7 @@ struct ForkUpdateCheckView: View {
                     if isChecking {
                         HStack { ProgressView(); Text("正在检查…") }
                     } else {
-                        Label(result == nil ? "检查更新" : "重新检查", systemImage: "arrow.triangle.2.circlepath")
+                        Label(checkedOnce ? "重新检查" : "检查更新", systemImage: "arrow.triangle.2.circlepath")
                     }
                 }
                 .disabled(isChecking)
@@ -82,18 +91,6 @@ struct ForkUpdateCheckView: View {
                 Button("完成") { dismiss() }
             }
         }
-        .sheet(isPresented: $showingPrivateConfiguration) {
-            NavigationView {
-                PrivateUpdateConfigurationEditorView(initialConfiguration: privateConfiguration) { configuration in
-                    privateConfiguration = configuration
-                    privateStatus = nil
-                    privateErrorMessage = nil
-                    if let result {
-                        Task { await checkPrivateIfUpdateAvailable(result) }
-                    }
-                }
-            }
-        }
         .task {
             loadPrivateConfiguration()
             await check()
@@ -102,102 +99,32 @@ struct ForkUpdateCheckView: View {
 
     @ViewBuilder
     private var privateUpdateSection: some View {
-        Section("私人签名更新") {
-            if privateConfiguration == nil {
-                Text("未配置私人 OTA。Worker 地址和 Signing Request Token 都只保存在本机 Keychain，不写入源码、Info.plist 或 UserDefaults。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Button {
-                    showingPrivateConfiguration = true
-                } label: {
-                    Label("配置私人签名更新", systemImage: "lock.shield")
-                }
-            } else {
-                HStack {
-                    Label("私人通道", systemImage: "lock.fill")
-                    Spacer()
-                    Text("已配置").foregroundStyle(.secondary)
-                }
+        Section {
+            NavigationLink {
+                SelfUpdateView(
+                    context: PrivateSigning.uiContext,
+                    releaseSource: PrivateSigning.releaseSource,
+                    currentVersion: PrivateSigning.currentVersionString,
+                    installedBundleIdentifier: PrivateSigning.installedBundleIdentifier
+                )
+            } label: {
+                Label(
+                    hasPrivateConfiguration ? "私人签名更新" : "配置私人签名更新",
+                    systemImage: hasPrivateConfiguration ? "lock.fill" : "lock.shield"
+                )
+            }
 
-                if result?.updateAvailable == false {
-                    Text("当前没有需要签名的新版本。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else if isCheckingPrivate {
-                    HStack { ProgressView(); Text("正在检查 signed 版本…") }
-                } else if let privateStatus {
-                    valueRow("Bundle ID", value: privateStatus.bundleIdentifier)
-                    if privateStatus.available {
-                        HStack {
-                            Text("signed 状态")
-                            Spacer()
-                            Text("可安装").foregroundStyle(.green)
-                        }
-                        valueRow("signed 版本", value: privateStatus.requestedVersion.description)
-                        if let expiresAt = privateStatus.expiresAt, !expiresAt.isEmpty {
-                            valueRow("临时链接有效期", value: expiresAt)
-                        }
-                        if let sha = privateStatus.ipaSHA256, !sha.isEmpty {
-                            Text(sha)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                        Button {
-                            installPrivateUpdate()
-                        } label: {
-                            Label("直接安装已签名版本", systemImage: "square.and.arrow.down")
-                        }
-                        .disabled(privateStatus.manifestURL == nil)
-                    } else {
-                        let failed = privateStatus.state == "failed"
-                        HStack {
-                            Text("signed 状态")
-                            Spacer()
-                            Text(failed ? "签名失败" : "准备中 / 暂不可用")
-                                .foregroundStyle(failed ? .red : .orange)
-                        }
-                        if let errorCode = privateStatus.errorCode, !errorCode.isEmpty {
-                            valueRow("错误码", value: errorCode)
-                        }
-                        if let message = privateStatus.message, !message.isEmpty {
-                            Text(message)
-                                .font(.footnote)
-                                .foregroundStyle(failed ? .red : .secondary)
-                        }
-                    }
-                } else {
-                    Text("尚未检查私人 signed 版本。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let privateErrorMessage {
-                    Text(privateErrorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-
-                Button {
-                    guard let result else { return }
-                    Task { await checkPrivateIfUpdateAvailable(result) }
-                } label: {
-                    Label("重新检查私人更新", systemImage: "arrow.clockwise")
-                }
-                .disabled(result?.updateAvailable != true || isCheckingPrivate)
-
-                Button {
-                    showingPrivateConfiguration = true
-                } label: {
-                    Label("修改私人配置", systemImage: "key")
-                }
-
+            if hasPrivateConfiguration {
                 Button(role: .destructive) {
                     clearPrivateConfiguration()
                 } label: {
                     Label("清除私人配置", systemImage: "trash")
                 }
             }
+        } header: {
+            Text("私人签名更新")
+        } footer: {
+            Text("Worker 地址和 Signing Request Token 只保存在本机 Keychain，不写入源码、Info.plist 或 UserDefaults。签名、多开副本与 OTA 安装都在该页面内完成。")
         }
     }
 
@@ -215,146 +142,28 @@ struct ForkUpdateCheckView: View {
         isChecking = true
         didCopy = false
         errorMessage = nil
-        defer { isChecking = false }
+        defer {
+            isChecking = false
+            checkedOnce = true
+        }
         do {
-            let fetched = try await ForkReleaseService.fetchLatest()
-            result = fetched
-            if privateConfiguration != nil {
-                await checkPrivateIfUpdateAvailable(fetched)
-            }
+            candidate = try await PrivateSigning.releaseSource.latestRelease(
+                currentVersion: PrivateSigning.currentVersionString
+            )
         } catch {
-            result = nil
-            privateStatus = nil
+            candidate = nil
             errorMessage = error.localizedDescription
         }
     }
 
-    @MainActor
-    private func checkPrivateIfUpdateAvailable(_ result: ForkReleaseCheckResult) async {
-        guard result.updateAvailable else {
-            privateStatus = nil
-            privateErrorMessage = nil
-            return
-        }
-        await checkPrivate(release: result)
-    }
-
-    @MainActor
-    private func checkPrivate(release: ForkReleaseCheckResult) async {
-        guard !isCheckingPrivate, let configuration = privateConfiguration else { return }
-        isCheckingPrivate = true
-        privateStatus = nil
-        privateErrorMessage = nil
-        defer { isCheckingPrivate = false }
-        do {
-            privateStatus = try await PrivateSignedUpdateService.fetch(
-                configuration: configuration,
-                release: release
-            )
-        } catch {
-            privateErrorMessage = error.localizedDescription
-        }
-    }
-
-    @MainActor
-    private func installPrivateUpdate() {
-        guard let manifestURL = privateStatus?.manifestURL,
-              let installURL = PrivateSignedUpdateService.installationURL(manifestURL: manifestURL) else {
-            privateErrorMessage = PrivateSignedUpdateServiceError.invalidManifestURL.localizedDescription
-            return
-        }
-        UIApplication.shared.open(installURL, options: [:]) { opened in
-            guard !opened else { return }
-            Task { @MainActor in
-                privateErrorMessage = "iOS 没有接受 OTA 安装请求；请确认 signed IPA、manifest 和 provisioning profile 当前有效。"
-            }
-        }
-    }
-
     private func loadPrivateConfiguration() {
-        do {
-            privateConfiguration = try PrivateUpdateConfigurationStore.load()
-        } catch {
-            privateConfiguration = nil
-            privateErrorMessage = error.localizedDescription
-        }
+        hasPrivateConfiguration = (try? PrivateSigning.store.load()) != nil
     }
 
     private func clearPrivateConfiguration() {
         do {
-            try PrivateUpdateConfigurationStore.clear()
-            privateConfiguration = nil
-            privateStatus = nil
-            privateErrorMessage = nil
-        } catch {
-            privateErrorMessage = error.localizedDescription
-        }
-    }
-}
-
-struct PrivateUpdateConfigurationEditorView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var workerURLText: String
-    @State private var tokenText: String
-    @State private var errorMessage: String?
-    let onSaved: (PrivateUpdateConfiguration) -> Void
-
-    init(
-        initialConfiguration: PrivateUpdateConfiguration?,
-        onSaved: @escaping (PrivateUpdateConfiguration) -> Void
-    ) {
-        _workerURLText = State(initialValue: initialConfiguration?.workerURL.absoluteString ?? "")
-        _tokenText = State(initialValue: initialConfiguration?.personalToken ?? "")
-        self.onSaved = onSaved
-    }
-
-    var body: some View {
-        Form {
-            Section("私人 OTA 配置") {
-                TextField("https://你的-worker.example", text: $workerURLText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                SecureField("Signing Request Token", text: $tokenText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-
-            if let errorMessage {
-                Section {
-                    Text(errorMessage).foregroundStyle(.red)
-                }
-            }
-
-            Section {
-                Text("两项配置都会作为一个 Keychain 项保存在当前设备，且使用 ThisDeviceOnly 可访问级别；公开源码和发行包中没有默认 Worker 地址或 Token。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle("私人签名更新")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("取消") { dismiss() }
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("保存") { save() }
-            }
-        }
-    }
-
-    private func save() {
-        do {
-            try PrivateUpdateConfigurationStore.save(
-                workerURL: workerURLText,
-                personalToken: tokenText
-            )
-            guard let configuration = try PrivateUpdateConfigurationStore.load() else {
-                throw PrivateUpdateConfigurationError.invalidStoredData
-            }
-            onSaved(configuration)
-            dismiss()
+            try PrivateSigning.store.clear()
+            hasPrivateConfiguration = false
         } catch {
             errorMessage = error.localizedDescription
         }
