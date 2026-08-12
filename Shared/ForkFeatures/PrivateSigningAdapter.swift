@@ -6,7 +6,7 @@ import PrivateSignerUI
 /// Everything specific to this app's private-signing integration.
 ///
 /// Only stable application identity belongs here. Profile IDs, release URLs, and latest-version
-/// policy are Worker deployment state and are discovered at runtime through the v3 SDK.
+/// policy are Worker deployment state and are discovered at runtime through the v2 SDK.
 enum PrivateSigning {
     static let teamID = "4JJ849C5Q2"
 
