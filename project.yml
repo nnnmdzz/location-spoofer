@@ -20,7 +20,7 @@ packages:
   # drifts on its own could break the one mechanism that would otherwise deliver the fix.
   PrivateSigner:
     url: https://github.com/nnnmdzz/private-signer-ios.git
-    exactVersion: 0.1.1
+    exactVersion: 0.2.0
 
 targets:
   PaopaoLocationSpoofer:
