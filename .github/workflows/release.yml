@@ -15,7 +15,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64]
     permissions:
       contents: write
 
@@ -91,7 +91,9 @@ jobs:
           go-version: '1.23'
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        # The runner is a machine, not a fresh image: installing something already present is a
+        # slow way to fail when Homebrew decides to upgrade itself mid-run.
+        run: command -v xcodegen >/dev/null || brew install xcodegen
 
       - name: Build unsigned IPA
         env:
